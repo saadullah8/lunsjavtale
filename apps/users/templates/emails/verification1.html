@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Login Credentials</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #e9ecef; /* Light gray background */
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto; /* Added margin for spacing */
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            border-top: 5px solid #28a745; /* Green top border */
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo img {
+            max-width: 150px; /* Adjust as needed */
+        }
+        h1 {
+            color: #20c997; /* Teal color for main heading */
+            text-align: center;
+        }
+        h2 {
+            color: #dc3545; /* Red color for subheading */
+            text-align: center;
+        }
+        p {
+            color: #555555; /* Darker gray for text */
+        }
+        .credentials {
+            background-color: #f0f8ff; /* Alice Blue for credentials background */
+            border: 1px solid #28a745; /* Green border color */
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .credentials p {
+            color: #333333; /* Darker text for credentials */
+        }
+        .highlight {
+            color: #dc3545; /* Red color for highlighted text */
+            font-weight: bold;
+        }
+        .button {
+            display: inline-block;
+            background-color: #007bff; /* Blue button */
+            color: white;
+            padding: 12px 25px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-weight: bold;
+            transition: background-color 0.3s ease;
+            text-align: center; /* Center the text */
+        }
+        .button:hover {
+            background-color: #0056b3; /* Darker blue on hover */
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #888888;
+            text-align: center; /* Centered footer text */
+        }
+        .footer a {
+            color: #28a745; /* Green footer link color */
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline; /* Underline on hover */
+        }
+        .greeting {
+            background-color: #ffebcd; /* Blanched Almond for greeting background */
+            padding: 10px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="logo">
+        <img src="https://res.cloudinary.com/dj0bdzype/image/upload/v1720418092/lunsjavtale/stage/logo/vri49m8c.gif" alt="Lunsjavtale Logo">
+    </div>
+
+    <h1>🎉 Welcome to Lunsjavtale</h1>
+
+    <h2>Your Login Credentials</h2>
+
+    <div class="greeting">
+        <p>Dear {{user_name}},</p>
+        <p>We hope this message finds you in great spirits!</p>
+    </div>
+
+    <p>Below are your login credentials:</p>
+
+    <div class="credentials">
+        <p><strong>Email:</strong> <span class="highlight">{{email}}</span></p>
+        <p><strong>Password:</strong> <span class="highlight">{{password}}</span></p>
+    </div>
+
+    <a href="{{link}}" class="button" style="background-color: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; margin-top: 20px; font-weight: bold; display: inline-block; transition: background-color 0.3s ease;">Visit Website</a>
+
+    <p>Please keep your credentials safe and do not share them with anyone. If you have any questions or need assistance, feel free to reach out to us at <a href="mailto:lunsjavtale@gmail.com">lunsjavtale@gmail.com</a>.</p>
+
+    <p>Sincerely,<br>
+    Lunsjavtale Team</p>
+
+    <div class="footer">
+        &copy; {{year}} Lunsjavtale. All rights reserved.<br>
+        <a href="https://lunsjavtale.no">Visit website</a>
+    </div>
+</div>
+
+</body>
+</html>

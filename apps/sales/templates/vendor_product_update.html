@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4; /* Light gray background */
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .email-container {
+            background-color: #fff; /* White background for the email container */
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); /* Soft shadow */
+            max-width: 600px;
+            margin: auto;
+            border-top: 5px solid #007bff; /* Blue top border */
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .logo img {
+            max-width: 150px; /* Adjust as needed */
+        }
+
+        h3 {
+            color: #ff5733; /* Bright red-orange for the header */
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center; /* Centered heading */
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse; /* Remove double borders */
+            margin-bottom: 20px; /* Space below the table */
+        }
+
+        table, th, td {
+            border: 1px solid #ddd; /* Light gray border for the table */
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #007bff; /* Blue background for the header */
+            color: white; /* White text for header */
+        }
+
+        tr:nth-child(even) {
+            background-color: #e9ecef; /* Light gray for even rows */
+        }
+
+        tr:hover {
+            background-color: #d1ecf1; /* Light blue on hover */
+        }
+
+        p {
+            margin: 10px 0; /* Spacing for paragraphs */
+            font-size: 14px; /* Increased font size */
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #888; /* Gray color for footer text */
+            text-align: center; /* Centered footer text */
+            margin-top: 20px; /* Spacing above the footer */
+        }
+
+        .thank-you {
+            background-color: #d4edda; /* Light green background */
+            color: #155724; /* Dark green text */
+            padding: 15px;
+            border: 1px solid #c3e6cb; /* Green border */
+            border-radius: 5px;
+            text-align: center; /* Centered text */
+            margin-bottom: 20px; /* Space below thank-you note */
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="logo">
+            <img src="https://res.cloudinary.com/dj0bdzype/image/upload/v1720418092/lunsjavtale/stage/logo/vri49m8c.gif" alt="Lunsjavtale Logo">
+        </div>
+
+        <h3>Vendor Product Request Update!</h3>
+
+        <div class="thank-you">
+            <p>{{message}}</p>
+            <p>Thank you for staying with Lunsjavtale! We appreciate your business.</p>
+        </div>
+
+        <p>If you have any questions, feel free to reach out.</p>
+        <p>Sincerely,</p>
+        <p>The Lunsjavtale Team</p>
+
+        <div class="footer">
+            <p>This is an automated email, please do not reply.</p>
+            &copy; {{year}} Lunsjavtale. All rights reserved.<br>
+        </div>
+    </div>
+</body>
+</html>

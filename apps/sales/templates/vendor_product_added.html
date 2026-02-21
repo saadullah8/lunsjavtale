@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f7f7f7; /* Light gray background */
+            color: #333;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .email-container {
+            background-color: #ffffff; /* White background */
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            margin: auto;
+            border-top: 5px solid #007bff; /* Blue top border */
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .logo img {
+            max-width: 150px; /* Adjust as needed */
+        }
+
+        h3 {
+            color: #ff5733; /* Bright red-orange color */
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center; /* Center align the heading */
+        }
+
+        p {
+            font-size: 14px;
+            color: #555; /* Darker gray for paragraph text */
+            margin-bottom: 20px; /* Spacing below paragraphs */
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #007bff; /* Blue background for header */
+            color: white; /* White text for header */
+        }
+
+        tr:nth-child(even) {
+            background-color: #e9ecef; /* Light gray for even rows */
+        }
+
+        tr:nth-child(odd) {
+            background-color: #f0f8ff; /* Alice Blue for odd rows */
+        }
+
+        tr:hover {
+            background-color: #d1ecf1; /* Light blue on hover */
+        }
+
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #888888;
+            text-align: center; /* Centered footer text */
+        }
+
+        .footer a {
+            color: #007bff; /* Footer link color */
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline; /* Underline on hover */
+        }
+
+        .order-placed {
+            background-color: #d4edda; /* Light green background */
+            color: #155724; /* Dark green text */
+            padding: 15px;
+            border: 1px solid #c3e6cb; /* Green border */
+            border-radius: 5px;
+            text-align: center; /* Centered text */
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="logo">
+            <img src="https://res.cloudinary.com/dj0bdzype/image/upload/v1720418092/lunsjavtale/stage/logo/vri49m8c.gif" alt="Lunsjavtale Logo">
+        </div>
+
+        <h3>Vendor Product Request!</h3>
+
+        <div class="order-placed">
+            <p>{{message}}</p>
+        </div>
+
+
+        <div class="footer">
+            &copy; {{ year }} Lunsjavtale. All rights reserved.<br>
+            <a href="https://lunsjavtale.no">Visit website</a>
+        </div>
+    </div>
+</body>
+</html>
