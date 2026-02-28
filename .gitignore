@@ -10,3 +10,4 @@ logs
 venv
 firebase-admin.json
 server.log
+.venv
