@@ -1,23 +1,12 @@
 
 # third party imports
+import firebase_admin
 from django.conf import settings
-
-# Only initialize Firebase when the config file exists (e.g. production/Docker).
-# Locally, omit firebase-admin.json and GraphQL will work without push notifications.
-_firebase_initialized = False
-if getattr(settings, 'FIREBASE_CONFIG_PATH', None):
-    import os
-    path = settings.FIREBASE_CONFIG_PATH
-    if not os.path.isabs(path):
-        path = os.path.join(settings.BASE_DIR, path)
-    if os.path.isfile(path):
-        import firebase_admin
-        from firebase_admin import credentials
-        cred = credentials.Certificate(path)
-        firebase_admin.initialize_app(cred)
-        _firebase_initialized = True
-
+from firebase_admin import credentials
 from pyfcm import FCMNotification as PYFCMNotification
+
+cred = credentials.Certificate(settings.FIREBASE_CONFIG_PATH)
+firebase_admin.initialize_app(cred)
 
 
 class ExFCMNotification:
