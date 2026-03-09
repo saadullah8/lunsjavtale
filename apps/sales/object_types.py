@@ -118,6 +118,13 @@ class OrderType(DjangoObjectType):
         convert_choices_to_enum = False
         connection_class = CountConnection
 
+    def resolve_order_carts(self, info, **kwargs):
+        qs = self.order_carts.all()
+        user = getattr(info.context, 'user', None)
+        if user and user.is_vendor:
+            qs = qs.filter(item__vendor=user.vendor)
+        return qs
+
 
 class OrderStatusType(DjangoObjectType):
     """

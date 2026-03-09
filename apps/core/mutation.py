@@ -107,6 +107,139 @@ class ValidAreaDelete(graphene.Mutation):
             raise_graphql_error("Valid Area not found.", "valid_area_not_exist")
 
 
+class ValidAreaBulkInput(graphene.InputObjectType):
+    """Input for a single area in bulk import."""
+    post_code = graphene.Int(required=True)
+    name = graphene.String()
+
+
+def _parse_areas_text(content):
+    """Parse tab/space-separated text: one line per row, first column post_code, second name. Returns list of (post_code, name)."""
+    import re
+    seen = set()
+    rows = []
+    for line in (content or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = re.split(r"[\t\s]+", line, maxsplit=1)
+        if not parts:
+            continue
+        raw_code = parts[0].replace("\t", "").replace(" ", "")
+        try:
+            post_code = int(raw_code)
+        except (ValueError, TypeError):
+            continue
+        if post_code < 0:
+            continue
+        if post_code in seen:
+            continue
+        seen.add(post_code)
+        name = (parts[1].strip() if len(parts) > 1 else None) or None
+        rows.append((post_code, name))
+    return rows
+
+
+class ValidAreaImportFromText(graphene.Mutation):
+    """
+    Admins import areas from raw file content (one line per row, tab/space separated: post_code, name).
+    Avoids GraphQL variable list limits by sending a single string.
+    """
+
+    class Arguments:
+        content = graphene.String(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    created_count = graphene.Int()
+    updated_count = graphene.Int()
+    error_count = graphene.Int()
+    errors = graphene.List(graphene.String)
+
+    @is_admin_user
+    def mutate(self, info, content, **kwargs):
+        created_count = 0
+        updated_count = 0
+        error_count = 0
+        errors = []
+        rows = _parse_areas_text(content or "")
+        for post_code, name in rows:
+            try:
+                obj, created = ValidArea.objects.update_or_create(
+                    post_code=post_code,
+                    defaults={"name": name, "is_active": True},
+                )
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+            except Exception as e:
+                error_count += 1
+                errors.append(f"Post code {post_code}: {str(e)}")
+        return ValidAreaImportFromText(
+            success=True,
+            message=f"Import complete: {created_count} created, {updated_count} updated, {error_count} errors.",
+            created_count=created_count,
+            updated_count=updated_count,
+            error_count=error_count,
+            errors=errors if errors else None,
+        )
+
+
+class ValidAreaBulkImport(graphene.Mutation):
+    """
+    Admins can import many areas at once (e.g. from file).
+    For each row: post_code (required), name (optional).
+    Uses update_or_create on post_code so duplicates in the list or existing DB are handled.
+    """
+
+    class Arguments:
+        areas = graphene.List(graphene.NonNull(ValidAreaBulkInput), required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    created_count = graphene.Int()
+    updated_count = graphene.Int()
+    error_count = graphene.Int()
+    errors = graphene.List(graphene.String)
+
+    @is_admin_user
+    def mutate(self, info, areas, **kwargs):
+        created_count = 0
+        updated_count = 0
+        error_count = 0
+        errors = []
+
+        for item in areas:
+            post_code = item.get("post_code") or item.get("postCode")
+            name = (item.get("name") or "").strip() or None
+            if post_code is None:
+                error_count += 1
+                errors.append("Row missing post_code.")
+                continue
+            try:
+                obj, created = ValidArea.objects.update_or_create(
+                    post_code=post_code,
+                    defaults={"name": name, "is_active": True},
+                )
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+            except Exception as e:
+                error_count += 1
+                errors.append(f"Post code {post_code}: {str(e)}")
+
+        return ValidAreaBulkImport(
+            success=True,
+            message=f"Import complete: {created_count} created, {updated_count} updated, {error_count} errors.",
+            created_count=created_count,
+            updated_count=updated_count,
+            error_count=error_count,
+            errors=errors if errors else None,
+        )
+
+
 class AddressTypeMutation(DjangoModelFormMutation):
     """
         Admins can create and update Address Type information through a form input.
@@ -669,6 +802,8 @@ class Mutation(graphene.ObjectType):
     """
     valid_area_mutation = ValidAreaMutation.Field()
     valid_area_delete = ValidAreaDelete.Field()
+    valid_area_bulk_import = ValidAreaBulkImport.Field()
+    valid_area_import_from_text = ValidAreaImportFromText.Field()
     # address_type_mutation = AddressTypeMutation.Field()
     # address_type_delete = AddressTypeDelete.Field()
     language_mutation = LanguageMutation.Field()

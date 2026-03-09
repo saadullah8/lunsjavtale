@@ -19,7 +19,11 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from graphene_django.views import GraphQLView
 
+from apps.core.views import ImportAreasView, valid_areas_search
+
 urlpatterns = [
     path('dadmin/', admin.site.urls),
     path('graphql/', csrf_exempt(GraphQLView.as_view(graphiql=True)), name='graphql'),
+    path('api/import-areas/', csrf_exempt(ImportAreasView.as_view()), name='import_areas'),
+    path('api/valid-areas-search/', valid_areas_search, name='valid_areas_search'),
 ]

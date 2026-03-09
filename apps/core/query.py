@@ -45,8 +45,14 @@ class Query(graphene.ObjectType):
     FAQ_object = graphene.Field(FAQType, id=graphene.ID())
     address_types = DjangoFilterConnectionField(TypeOfAddressType)
     address_type = graphene.Field(TypeOfAddressType, id=graphene.ID())
-    valid_areas = DjangoFilterConnectionField(ValidAreaType)
+    valid_areas = DjangoFilterConnectionField(ValidAreaType, max_limit=None)
     valid_area = graphene.Field(ValidAreaType, id=graphene.ID())
+    valid_areas_search = graphene.Field(
+        graphene.List(ValidAreaType),
+        term=graphene.String(),
+        first=graphene.Int(),
+        name='validAreasSearch',
+    )
     supported_brands = DjangoFilterConnectionField(SupportedBrandType)
     supported_brand = graphene.Field(SupportedBrandType, id=graphene.ID())
     partners = DjangoFilterConnectionField(PartnerType)
@@ -95,12 +101,25 @@ class Query(graphene.ObjectType):
         #     obj.save()
         return obj
 
-    def resolve_valid_areas(self, info, **kwargs):
-        return ValidArea.objects.all()
+    def resolve_valid_areas(self, info, name=None, name_Icontains=None, **kwargs):
+        qs = ValidArea.objects.all()
+        # Apply name search (icontains) so vendor search always works
+        search = name if name is not None else name_Icontains or kwargs.get('name') or kwargs.get('name_Icontains')
+        if search is not None and str(search).strip():
+            qs = qs.filter(name__icontains=str(search).strip())
+        return qs
 
     def resolve_valid_area(self, info, id, **kwargs):
         obj = ValidArea.objects.filter(id=id).last()
         return obj
+
+    def resolve_valid_areas_search(self, info, term=None, first=None, **kwargs):
+        """Search areas by name (icontains). Used by vendor panel; no connection limit issues."""
+        qs = ValidArea.objects.all().order_by('name', 'post_code')
+        if term is not None and str(term).strip():
+            qs = qs.filter(name__icontains=str(term).strip())
+        limit = 100 if first is None else max(1, min(int(first), 500))
+        return list(qs[:limit])
 
     def resolve_check_post_code(self, info, post_code, **kwargs):
         return ValidArea.objects.filter(post_code=post_code, is_active=True).exists()

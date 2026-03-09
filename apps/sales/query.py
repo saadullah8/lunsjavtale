@@ -110,8 +110,14 @@ class Query(graphene.ObjectType):
         if user.is_admin:
             qs = qs.filter(id=id)
             qs.update(is_checked=True)
+        elif user.is_vendor:
+            qs = qs.filter(id=id, order_carts__item__vendor=user.vendor).distinct()
         else:
             qs = qs.filter(company=user.company, id=id)
+            if hasattr(user, 'role') and user.role == 'company-employee':
+                qs = qs.filter(
+                    id__in=user.cart_items.filter(cart__order__isnull=False).values_list('cart__order_id', flat=True)
+                )
         return qs.last()
 
     @is_authenticated

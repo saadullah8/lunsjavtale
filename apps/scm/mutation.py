@@ -379,11 +379,11 @@ class VendorProductMutation(graphene.Mutation):
     @is_vendor_user
     def mutate(self, info, input, ingredients, attachments=[], **kwargs):
         user = info.context.user
-        form = ProductForm(data=input)
+        form = VendorProductForm(data=input)
         if form.data.get('id'):
             object_id = form.data['id']
             old_obj = get_object_by_id(Product, object_id)
-            form = ProductForm(data=input, instance=old_obj)
+            form = VendorProductForm(data=input, instance=old_obj)
         if form.is_valid():
             obj = form.save(commit=False)
             obj.vendor = user.vendor

@@ -12,6 +12,7 @@ from graphql import GraphQLError
 
 # local imports
 from apps.bases.constant import HistoryActions, VerifyActionChoices
+from apps.core.models import ValidArea
 from apps.bases.utils import (
     camel_case_format,
     create_token,
@@ -310,6 +311,53 @@ class VendorUpdateMutation(DjangoModelFormMutation):
             raise_graphql_error_with_fields("Invalid input request.", error_data)
         return VendorUpdateMutation(
             success=True, message="Successfully updated", instance=obj
+        )
+
+
+class SetVendorServiceAreas(graphene.Mutation):
+    """
+    Set the list of valid areas (postcodes) where the vendor provides service.
+    Only the authenticated vendor can update their own service areas.
+    """
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorType)
+
+    class Arguments:
+        valid_area_ids = graphene.List(graphene.ID, required=True)
+
+    @is_authenticated
+    def mutate(self, info, valid_area_ids):
+        user = info.context.user
+        if not getattr(user, 'vendor', None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+        vendor = user.vendor
+        areas = []
+        for gid in valid_area_ids or []:
+            node = None
+            try:
+                node = graphene.relay.Node.get_node_from_global_id(info, str(gid))
+            except Exception:
+                pass
+            if node is None or not isinstance(node, ValidArea):
+                # Accept raw numeric ID (e.g. from ME query returning pk as id in some clients)
+                try:
+                    pk = int(gid)
+                    node = ValidArea.objects.filter(pk=pk).first()
+                except (TypeError, ValueError):
+                    node = None
+            if node is None or not isinstance(node, ValidArea):
+                raise_graphql_error(
+                    "One or more area IDs are invalid.",
+                    "invalid_valid_area_id"
+                )
+            if node.is_active:
+                areas.append(node)
+        vendor.service_areas.set(areas)
+        return SetVendorServiceAreas(
+            success=True,
+            message="Service areas updated.",
+            instance=vendor,
         )
 
 
@@ -1930,6 +1978,7 @@ class Mutation(graphene.ObjectType):
     company_billing_address_mutation = CompanyBillingAddressMutation.Field()
     vendor_creation = VendorMutation.Field()
     vendor_update = VendorUpdateMutation.Field()
+    set_vendor_service_areas = SetVendorServiceAreas.Field()
     vendor_block_unblock = VendorBlockUnBlock.Field()
     vendor_delete = VendorDelete.Field()
     withdraw_request_mutation = VendorWithdrawRequest.Field()

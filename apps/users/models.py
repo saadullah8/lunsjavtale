@@ -152,6 +152,12 @@ class Vendor(BaseWithoutID, SoftDeletion):
     post_code = models.PositiveIntegerField(
         blank=True, null=True
     )
+    service_areas = models.ManyToManyField(
+        ValidArea,
+        blank=True,
+        related_name='vendors_serving',
+        help_text='Post codes/areas where this vendor provides service.',
+    )
     is_blocked = models.BooleanField(default=False)
     note = models.TextField(blank=True, null=True)
     logo_url = models.TextField(

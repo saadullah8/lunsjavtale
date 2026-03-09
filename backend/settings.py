@@ -154,6 +154,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 DB_PREFIX = 'lunsjavtale'
 
+# Allow large GraphQL variable payloads (e.g. bulk area import)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 50000
+
 # Configuration for Graphene.
 GRAPHENE = {
     'SCHEMA': 'backend.schema.schema',

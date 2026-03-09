@@ -23,6 +23,7 @@ from .filters import (
     VendorFilters,
     WithdrawRequestFilters,
 )
+from apps.core.object_types import ValidAreaType
 from .models import (
     Address,
     Agreement,
@@ -143,6 +144,7 @@ class VendorType(DjangoObjectType):
     id = graphene.ID(required=True)
     balance = graphene.Decimal()
     owner = graphene.Field(UserType)
+    service_areas = graphene.List(ValidAreaType)
 
     class Meta:
         model = Vendor
@@ -158,6 +160,10 @@ class VendorType(DjangoObjectType):
     @staticmethod
     def resolve_owner(self, info, **kwargs):
         return self.owner
+
+    @staticmethod
+    def resolve_service_areas(self, info, **kwargs):
+        return self.service_areas.filter(is_active=True).order_by('name', 'post_code')
 
 
 class UserDeviceTokenType(DjangoObjectType):
