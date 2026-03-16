@@ -25,7 +25,7 @@ from apps.notifications.tasks import (
 )
 from apps.scm.models import Ingredient, Product
 from apps.users.choices import RoleTypeChoices
-from backend.permissions import is_admin_user, is_authenticated, is_company_user
+from backend.permissions import is_admin_user, is_vendor_user, is_authenticated, is_company_user
 
 from ..notifications.choices import NotificationTypeChoice
 from ..users.models import Coupon
