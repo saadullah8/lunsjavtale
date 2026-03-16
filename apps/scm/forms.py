@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 
+from apps.users.models import Vendor
 from .models import Category, FoodMeeting, Ingredient, Product, WeeklyVariant
 
 User = get_user_model()
@@ -10,6 +11,11 @@ class ProductForm(forms.ModelForm):
     """
         Product model form will define here
     """
+    vendor = forms.ModelChoiceField(
+        queryset=Vendor.objects.filter(is_deleted=False),
+        required=True,
+        empty_label="Select supplier",
+    )
 
     class Meta:
         model = Product

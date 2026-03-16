@@ -415,19 +415,17 @@ class OrderStatusUpdate(graphene.Mutation):
         status = graphene.String()
         note = graphene.String()
 
-    @is_admin_user
+    @is_vendor_user
     def mutate(self, info, id, status="", note=""):
-        # obj = Order.objects.get(
-        #     id=id, status__in=[
-        #         InvoiceStatusChoices.PLACED, InvoiceStatusChoices.PAYMENT_COMPLETED, InvoiceStatusChoices.UPDATED,
-        #         InvoiceStatusChoices.CONFIRMED
-        #     ]
-        # )
-        # if status not in [
-        #     InvoiceStatusChoices.CONFIRMED, InvoiceStatusChoices.CANCELLED, InvoiceStatusChoices.DELIVERED
-        # ]:
-        #     raise_graphql_error("Status not valid.")
-        obj = Order.objects.get(id=id)
+        """
+        Allow only the owning vendor to update order status.
+        Admins and other roles are read-only for status.
+        """
+        user = info.context.user
+        qs = Order.objects.filter(id=id, is_deleted=False, order_carts__item__vendor=user.vendor).distinct()
+        obj = qs.last()
+        if not obj:
+            raise_graphql_error("Order not found.", field_name="id")
         if obj.status in [InvoiceStatusChoices.CANCELLED, InvoiceStatusChoices.DELIVERED]:
             raise_graphql_error(f"Order status already in '{obj.status}'")
         OrderStatus.objects.create(order=obj, status=status, note=note)
