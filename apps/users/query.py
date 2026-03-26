@@ -142,6 +142,10 @@ class Query(graphene.ObjectType):
 
     def resolve_client_details(self, info, **kwargs):
         client = ClientDetails.objects.last()
+        if client:
+            return client
+        # Ensure there's always a singleton row to manage global settings from admin.
+        client, _ = ClientDetails.objects.get_or_create(id=1)
         return client
 
     def resolve_all_gender_choices(self, info, **kwargs):

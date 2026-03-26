@@ -361,6 +361,38 @@ class SetVendorServiceAreas(graphene.Mutation):
         )
 
 
+class SetVendorCommission(graphene.Mutation):
+    """
+    Admin can set platform commission (%) for a specific vendor.
+    """
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorType)
+
+    class Arguments:
+        id = graphene.ID(required=True)
+        commission_percentage = graphene.Int(required=False)
+
+    @is_admin_user
+    def mutate(self, info, id, commission_percentage=None):
+        vendor = Vendor.objects.filter(id=id).last()
+        if not vendor:
+            raise_graphql_error("Vendor not found.", field_name="id")
+        if commission_percentage is None:
+            vendor.commission_percentage = None
+        else:
+            if commission_percentage < 0 or commission_percentage > 100:
+                raise_graphql_error("Commission percentage must be between 0 and 100.", field_name="commissionPercentage")
+            vendor.commission_percentage = commission_percentage
+        vendor.save()
+        return SetVendorCommission(
+            success=True,
+            message="Successfully updated",
+            instance=vendor,
+        )
+
+
 class VendorDelete(graphene.Mutation):
     """
     """
@@ -1812,6 +1844,7 @@ class DefaultMutation(graphene.Mutation):
         slogan = graphene.String()
         contact = graphene.String()
         email = graphene.String()
+        default_vendor_commission_percentage = graphene.Int()
         logo_url = graphene.String()
         cover_photo_url = graphene.String()
         logo_file_id = graphene.String()
@@ -1979,6 +2012,7 @@ class Mutation(graphene.ObjectType):
     vendor_creation = VendorMutation.Field()
     vendor_update = VendorUpdateMutation.Field()
     set_vendor_service_areas = SetVendorServiceAreas.Field()
+    set_vendor_commission = SetVendorCommission.Field()
     vendor_block_unblock = VendorBlockUnBlock.Field()
     vendor_delete = VendorDelete.Field()
     withdraw_request_mutation = VendorWithdrawRequest.Field()

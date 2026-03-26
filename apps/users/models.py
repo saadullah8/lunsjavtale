@@ -44,6 +44,11 @@ class ClientDetails(models.Model):
     name = models.CharField(max_length=100, blank=True, null=True)
     slogan = models.TextField(blank=True, null=True)
     social_media_links = models.JSONField(blank=True, null=True)
+    default_vendor_commission_percentage = models.PositiveIntegerField(
+        default=0,
+        validators=[MaxValueValidator(100)],
+        help_text="Default platform commission (%) taken from vendor sales when vendor-specific commission is not set.",
+    )
     logo_url = models.TextField(
         blank=True,
         null=True
@@ -182,6 +187,12 @@ class Vendor(BaseWithoutID, SoftDeletion):
         decimal_places=2,
         default=0
     )
+    commission_percentage = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Platform commission (%) override for this vendor. If empty, the global default is used.",
+    )
 
     class Meta:
         db_table = f"{settings.DB_PREFIX}_vendors"  # define table name for database
@@ -199,6 +210,13 @@ class Vendor(BaseWithoutID, SoftDeletion):
     @property
     def owner(self):
         return self.users.last()
+
+    @property
+    def effective_commission_percentage(self) -> int:
+        if self.commission_percentage is not None:
+            return int(self.commission_percentage)
+        client = ClientDetails.objects.last()
+        return int(getattr(client, "default_vendor_commission_percentage", 0) or 0)
 
 
 class User(BaseWithoutID, AbstractBaseUser, SoftDeletion, PermissionsMixin):
