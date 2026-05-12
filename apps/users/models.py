@@ -163,6 +163,7 @@ class Vendor(BaseWithoutID, SoftDeletion):
         related_name='vendors_serving',
         help_text='Post codes/areas where this vendor provides service.',
     )
+    is_kitchen_active = models.BooleanField(default=True)
     is_blocked = models.BooleanField(default=False)
     note = models.TextField(blank=True, null=True)
     logo_url = models.TextField(
@@ -217,6 +218,90 @@ class Vendor(BaseWithoutID, SoftDeletion):
             return int(self.commission_percentage)
         client = ClientDetails.objects.last()
         return int(getattr(client, "default_vendor_commission_percentage", 0) or 0)
+
+
+class VendorDeliverySettings(BaseWithoutID):
+    DELIVERY = "delivery"
+    PICKUP = "pickup"
+    BOTH = "both"
+    DELIVERY_MODE_CHOICES = (
+        (DELIVERY, "Delivery"),
+        (PICKUP, "Pickup"),
+        (BOTH, "Delivery and pickup"),
+    )
+
+    vendor = models.OneToOneField(
+        Vendor,
+        on_delete=models.CASCADE,
+        related_name="delivery_settings",
+    )
+    delivery_mode = models.CharField(
+        max_length=16,
+        choices=DELIVERY_MODE_CHOICES,
+        default=BOTH,
+    )
+    delivery_available = models.BooleanField(default=True)
+    pickup_available = models.BooleanField(default=True)
+    pickup_address = models.TextField(blank=True, null=True)
+    pickup_instructions = models.TextField(blank=True, null=True)
+    base_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    free_delivery_over = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    same_fee_all_distances = models.BooleanField(default=True)
+    delivery_days = models.JSONField(default=list, blank=True)
+    delivery_time_slots = models.JSONField(default=list, blank=True)
+    max_deliveries_per_day = models.PositiveIntegerField(default=0)
+    max_orders_per_time_slot = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = f"{settings.DB_PREFIX}_vendor_delivery_settings"
+        verbose_name_plural = "Vendor delivery settings"
+
+    def __str__(self) -> str:
+        return f"Delivery settings: {self.vendor_id}"
+
+    @property
+    def live_validation(self):
+        issues = []
+        if not self.delivery_available and not self.pickup_available:
+            issues.append("Enable delivery or pickup.")
+        if self.delivery_available and not self.vendor.service_areas.filter(is_active=True).exists():
+            issues.append("Add at least one delivery area.")
+        if self.delivery_available and not self.delivery_days:
+            issues.append("Select at least one delivery day.")
+        if self.delivery_available and not self.delivery_time_slots:
+            issues.append("Add at least one delivery time slot.")
+        if self.pickup_available and not self.pickup_address:
+            issues.append("Add pickup address.")
+        return {
+            "isValid": not issues,
+            "issues": issues,
+        }
+
+
+class VendorSettings(BaseWithoutID):
+    vendor = models.OneToOneField(
+        Vendor,
+        on_delete=models.CASCADE,
+        related_name="business_settings",
+    )
+    business_description = models.TextField(blank=True, null=True)
+    business_address = models.TextField(blank=True, null=True)
+    organization_number = models.CharField(max_length=64, blank=True, null=True)
+    business_type = models.CharField(max_length=64, blank=True, null=True)
+    established_year = models.PositiveIntegerField(blank=True, null=True)
+    business_hours = models.JSONField(default=list, blank=True)
+    notification_preferences = models.JSONField(default=dict, blank=True)
+    language = models.CharField(max_length=32, default="en")
+    region_currency = models.CharField(max_length=32, default="NOK")
+    time_zone = models.CharField(max_length=64, default="UTC")
+    store_connected = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = f"{settings.DB_PREFIX}_vendor_settings"
+        verbose_name_plural = "Vendor settings"
+
+    def __str__(self) -> str:
+        return f"Settings: {self.vendor_id}"
 
 
 class User(BaseWithoutID, AbstractBaseUser, SoftDeletion, PermissionsMixin):

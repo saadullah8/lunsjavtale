@@ -33,7 +33,9 @@ class VendorProductForm(forms.ModelForm):
         model = Product
         exclude = [
             'is_deleted', 'deleted_on', 'visitor_count', 'vendor', 'availability', 'discount_availability',
-            'ingredients', 'actual_price', 'order', 'is_featured', 'status', 'note', "weekly_variants"
+            'ingredients', 'actual_price', 'order', 'is_featured', 'status', 'note', "weekly_variants",
+            'product_type', 'menu_status', 'pricing_type', 'minimum_guests', 'min_lead_time_hours',
+            'available_days', 'blackout_dates', 'dietary_tags', 'custom_dietary', 'optional_add_ons',
         ]
 
 

@@ -25,6 +25,7 @@ from apps.notifications.tasks import (
 )
 from apps.scm.models import Ingredient, Product
 from apps.users.choices import RoleTypeChoices
+from backend.task_dispatch import dispatch_task
 from backend.permissions import is_admin_user, is_vendor_user, is_authenticated, is_company_user
 
 from ..notifications.choices import NotificationTypeChoice
@@ -50,6 +51,7 @@ from .models import (
     OrderPayment,
     OrderStatus,
     PaymentMethod,
+    ProductRating,
     SellCart,
     UserCart,
 )
@@ -429,9 +431,9 @@ class OrderStatusUpdate(graphene.Mutation):
         if obj.status in [InvoiceStatusChoices.CANCELLED, InvoiceStatusChoices.DELIVERED]:
             raise_graphql_error(f"Order status already in '{obj.status}'")
         OrderStatus.objects.create(order=obj, status=status, note=note)
-        notify_company_order_update.delay(obj.id)
+        dispatch_task(notify_company_order_update, obj.id)
         if obj.status == InvoiceStatusChoices.DELIVERED:
-            vendor_sold_amount_calculation.delay(obj.id)
+            dispatch_task(vendor_sold_amount_calculation, obj.id)
         return OrderStatusUpdate(
             success=True,
             message="Successfully updated",
@@ -645,9 +647,11 @@ class AddProductRating(DjangoFormMutation):
         user = info.context.user
         form = ProductRatingForm(data=input)
         if form.is_valid():
-            if not user.cart_items.filter(cart__item=form.cleaned_data['product']).exists():
+            cart_item = user.cart_items.filter(cart__item=form.cleaned_data['product']).select_related('cart__order').last()
+            if not cart_item:
                 raise_graphql_error("User not permitted to rate this product.")
             form.cleaned_data['added_by'] = user
+            form.cleaned_data['order'] = cart_item.cart.order
             obj = form.save()
             # notify_admin()
         else:
@@ -660,6 +664,39 @@ class AddProductRating(DjangoFormMutation):
             success=True,
             message="Successfully added",
             instance=obj
+        )
+
+
+class VendorReviewReply(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(ProductRatingType)
+
+    class Arguments:
+        id = graphene.ID(required=True)
+        reply_text = graphene.String(required=True)
+        attention_required = graphene.Boolean()
+
+    @is_vendor_user
+    def mutate(self, info, id, reply_text, attention_required=None):
+        review = ProductRating.objects.filter(
+            id=id,
+            product__vendor=info.context.user.vendor,
+        ).last()
+        if not review:
+            raise_graphql_error("Review not found.", field_name="id")
+        if not str(reply_text).strip():
+            raise_graphql_error("Reply text is required.", field_name="replyText")
+        review.reply_text = str(reply_text).strip()
+        review.replied_on = timezone.now()
+        if attention_required is not None:
+            review.attention_required = attention_required
+        review.is_checked = True
+        review.save()
+        return VendorReviewReply(
+            success=True,
+            message="Reply posted.",
+            instance=review,
         )
 
 
@@ -807,6 +844,7 @@ class Mutation(graphene.ObjectType):
     payment_method_mutation = PaymentMethodMutation.Field()
     delete_payment_method = PaymentMethodDeleteMutation.Field()
     add_product_rating = AddProductRating.Field()
+    vendor_review_reply = VendorReviewReply.Field()
 
     add_to_cart = AddToCart.Field()
     send_cart_request = SendCartRequest.Field()

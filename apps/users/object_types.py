@@ -36,6 +36,8 @@ from .models import (
     UserCoupon,
     UserDeviceToken,
     Vendor,
+    VendorDeliverySettings,
+    VendorSettings,
     WithdrawRequest,
 )
 
@@ -146,6 +148,8 @@ class VendorType(DjangoObjectType):
     owner = graphene.Field(UserType)
     service_areas = graphene.List(ValidAreaType)
     effective_commission_percentage = graphene.Int()
+    delivery_settings = graphene.Field(lambda: VendorDeliverySettingsType)
+    business_settings = graphene.Field(lambda: VendorSettingsType)
 
     class Meta:
         model = Vendor
@@ -169,6 +173,45 @@ class VendorType(DjangoObjectType):
     @staticmethod
     def resolve_effective_commission_percentage(self, info, **kwargs):
         return self.effective_commission_percentage
+
+    @staticmethod
+    def resolve_delivery_settings(self, info, **kwargs):
+        settings, _ = VendorDeliverySettings.objects.get_or_create(vendor=self)
+        return settings
+
+    @staticmethod
+    def resolve_business_settings(self, info, **kwargs):
+        settings, _ = VendorSettings.objects.get_or_create(vendor=self)
+        return settings
+
+
+class VendorDeliverySettingsType(DjangoObjectType):
+    id = graphene.ID(required=True)
+    delivery_days = GenericScalar()
+    delivery_time_slots = GenericScalar()
+    live_validation = GenericScalar()
+
+    class Meta:
+        model = VendorDeliverySettings
+        interfaces = (graphene.relay.Node,)
+        convert_choices_to_enum = False
+        connection_class = CountConnection
+
+    @staticmethod
+    def resolve_live_validation(self, info, **kwargs):
+        return self.live_validation
+
+
+class VendorSettingsType(DjangoObjectType):
+    id = graphene.ID(required=True)
+    business_hours = GenericScalar()
+    notification_preferences = GenericScalar()
+
+    class Meta:
+        model = VendorSettings
+        interfaces = (graphene.relay.Node,)
+        convert_choices_to_enum = False
+        connection_class = CountConnection
 
 
 class UserDeviceTokenType(DjangoObjectType):

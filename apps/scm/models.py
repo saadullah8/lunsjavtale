@@ -3,9 +3,12 @@ from django.db import models
 
 from apps.bases.models import BasePriceModel, BaseWithoutID, SoftDeletion
 from apps.scm.choices import (
+    MenuStatusChoices,
     MeetingStatusChoices,
     MeetingTypeChoices,
+    PricingTypeChoices,
     ProductStatusChoices,
+    ProductTypeChoices,
 )
 
 
@@ -123,6 +126,25 @@ class Product(BaseWithoutID, BasePriceModel, SoftDeletion):
     order = models.PositiveSmallIntegerField(default=1)
     status = models.CharField(max_length=8, choices=ProductStatusChoices.choices, default=ProductStatusChoices.APPROVED)
     note = models.TextField(blank=True, null=True)
+    product_type = models.CharField(
+        max_length=16, choices=ProductTypeChoices.choices, default=ProductTypeChoices.MENU
+    )
+    menu_status = models.CharField(
+        max_length=16, choices=MenuStatusChoices.choices, default=MenuStatusChoices.DRAFT
+    )
+    pricing_type = models.CharField(
+        max_length=24, choices=PricingTypeChoices.choices, default=PricingTypeChoices.PER_PERSON
+    )
+    menu_type = models.CharField(max_length=64, blank=True, null=True)
+    minimum_guests = models.PositiveIntegerField(default=1)
+    min_lead_time_hours = models.PositiveIntegerField(default=24)
+    available_days = models.JSONField(default=list, blank=True)
+    blackout_dates = models.JSONField(default=list, blank=True)
+    dietary_tags = models.JSONField(default=list, blank=True)
+    custom_dietary = models.CharField(max_length=128, blank=True, null=True)
+    optional_add_ons = models.ManyToManyField(
+        to='self', symmetrical=False, related_name='included_in_menus', blank=True
+    )
 
     objects = ProductManager()
 
@@ -139,6 +161,24 @@ class Product(BaseWithoutID, BasePriceModel, SoftDeletion):
     @classmethod
     def queryset(cls):
         return cls.objects.filter(is_deleted=False)
+
+
+class MenuItem(BaseWithoutID, SoftDeletion):
+    product = models.ForeignKey(
+        to=Product, on_delete=models.CASCADE, related_name='menu_items'
+    )
+    title = models.CharField(max_length=128)
+    allergens = models.JSONField(default=list, blank=True)
+    image_url = models.TextField(blank=True, null=True)
+    file_id = models.TextField(blank=True, null=True)
+    order = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        db_table = f"{settings.DB_PREFIX}_menu_items"
+        ordering = ['order', '-created_on']
+
+    def __str__(self):
+        return f"{self.product_id}. {self.title}"
 
 
 class ProductAttachment(models.Model):

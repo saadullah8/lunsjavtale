@@ -1,8 +1,11 @@
 # third party imports
+import datetime
+from decimal import Decimal
 
 import graphene
 from django.contrib.auth import get_user_model
-from django.db.models import Q, Sum
+from django.db.models import Avg, Count, Q, Sum
+from django.utils import timezone
 from graphene.types.generic import GenericScalar
 from graphene_django.filter.fields import DjangoFilterConnectionField
 
@@ -12,6 +15,7 @@ from apps.users.choices import RoleTypeChoices
 from backend.permissions import is_authenticated, is_company_user
 
 from .models import Order, OrderPayment, PaymentMethod, ProductRating, SellCart
+from .choices import InvoiceStatusChoices
 from .object_types import (
     AddedCartsListType,
     OrderPaymentType,
@@ -25,6 +29,100 @@ from .tasks import get_payment_info
 # local imports
 
 User = get_user_model()
+
+
+REVIEW_DATE_RANGES = {
+    "last-month": 30,
+    "last-3-months": 90,
+    "last-6-months": 180,
+    "this-year": None,
+}
+
+
+def _money(value):
+    return str(value or Decimal("0.00"))
+
+
+def _review_date_filter(qs, date_range=None, start_date=None, end_date=None):
+    if date_range:
+        if date_range not in REVIEW_DATE_RANGES:
+            raise ValueError("Please select a valid date range.")
+        if date_range == "this-year":
+            qs = qs.filter(created_on__date__gte=datetime.date(timezone.now().year, 1, 1))
+        else:
+            qs = qs.filter(created_on__date__gte=timezone.now().date() - datetime.timedelta(days=REVIEW_DATE_RANGES[date_range]))
+    if start_date:
+        try:
+            qs = qs.filter(created_on__date__gte=datetime.date.fromisoformat(start_date))
+        except (TypeError, ValueError):
+            raise ValueError("Please provide a valid start date.")
+    if end_date:
+        try:
+            qs = qs.filter(created_on__date__lte=datetime.date.fromisoformat(end_date))
+        except (TypeError, ValueError):
+            raise ValueError("Please provide a valid end date.")
+    return qs
+
+
+def _vendor_reviews(vendor):
+    return ProductRating.objects.filter(product__vendor=vendor).select_related(
+        "added_by", "product", "order", "order__company"
+    )
+
+
+def _rating_distribution(qs):
+    total = qs.count()
+    distribution = {}
+    for rating in range(5, 0, -1):
+        count = qs.filter(rating=rating).count()
+        distribution[str(rating)] = {
+            "count": count,
+            "percent": round((count / total) * 100, 2) if total else 0,
+        }
+    return distribution
+
+
+def _review_customer(user):
+    return {
+        "id": user.id,
+        "name": user.full_name or user.email,
+        "email": user.email,
+        "photoUrl": user.photo_url,
+    }
+
+
+def _review_order_meta(review):
+    order = review.order
+    if not order:
+        return None
+    return {
+        "id": order.id,
+        "orderId": f"#ORD-{order.id}",
+        "amount": _money(order.final_price),
+        "orderType": order.payment_type,
+        "deliveryDate": order.delivery_date.isoformat() if order.delivery_date else None,
+        "reviewedOn": review.created_on.isoformat() if review.created_on else None,
+    }
+
+
+def _review_row(review):
+    return {
+        "id": review.id,
+        "customer": _review_customer(review.added_by),
+        "product": {
+            "id": review.product.id,
+            "name": review.product.title or review.product.name,
+        },
+        "rating": review.rating,
+        "description": review.description,
+        "tags": review.tags or [],
+        "createdOn": review.created_on.isoformat() if review.created_on else None,
+        "order": _review_order_meta(review),
+        "hasReply": bool(review.reply_text),
+        "replyText": review.reply_text,
+        "repliedOn": review.replied_on.isoformat() if review.replied_on else None,
+        "attentionRequired": review.attention_required,
+    }
 
 
 class Query(graphene.ObjectType):
@@ -44,9 +142,24 @@ class Query(graphene.ObjectType):
     order_payment = graphene.Field(OrderPaymentType, id=graphene.ID())
     product_ratings = DjangoFilterConnectionField(ProductRatingType)
     product_rating = graphene.Field(ProductRatingType, id=graphene.ID())
+    vendor_review_summary = GenericScalar(
+        date_range=graphene.String(),
+        start_date=graphene.String(),
+        end_date=graphene.String(),
+    )
+    vendor_reviews = GenericScalar(
+        rating=graphene.Int(),
+        date_range=graphene.String(),
+        start_date=graphene.String(),
+        end_date=graphene.String(),
+        search=graphene.String(),
+        first=graphene.Int(),
+        offset=graphene.Int(),
+    )
     added_carts_list = graphene.List(AddedCartsListType)
     get_online_payment_info = GenericScalar(id=graphene.ID())
     order_summary = GenericScalar(company_allowance=graphene.Int())
+    vendor_order_summary = GenericScalar()
 
     @is_company_user
     def resolve_order_summary(self, info, company_allowance, **kwargs):
@@ -95,6 +208,8 @@ class Query(graphene.ObjectType):
         qs = Order.objects.filter(is_deleted=False)
         if user.is_admin:
             qs = qs
+        elif user.is_vendor:
+            qs = qs.filter(order_carts__item__vendor=user.vendor).distinct()
         else:
             qs = qs.filter(company=user.company)
             if user.role == RoleTypeChoices.COMPANY_EMPLOYEE:
@@ -102,6 +217,33 @@ class Query(graphene.ObjectType):
                     id__in=user.cart_items.filter(cart__order__isnull=False).values_list('cart__order_id', flat=True)
                 )
         return qs
+
+    @is_authenticated
+    def resolve_vendor_order_summary(self, info, **kwargs):
+        user = info.context.user
+        if not user.is_vendor:
+            return {
+                'totalOrders': 0,
+                'newOrders': 0,
+                'accepted': 0,
+                'preparing': 0,
+                'ready': 0,
+                'outForDelivery': 0,
+                'delivered': 0,
+            }
+        qs = Order.objects.filter(
+            is_deleted=False,
+            order_carts__item__vendor=user.vendor
+        ).distinct()
+        return {
+            'totalOrders': qs.count(),
+            'newOrders': qs.filter(status=InvoiceStatusChoices.PLACED).count(),
+            'accepted': qs.filter(status=InvoiceStatusChoices.CONFIRMED).count(),
+            'preparing': qs.filter(status=InvoiceStatusChoices.PROCESSING).count(),
+            'ready': qs.filter(status=InvoiceStatusChoices.READY_TO_DELIVER).count(),
+            'outForDelivery': 0,
+            'delivered': qs.filter(status=InvoiceStatusChoices.DELIVERED).count(),
+        }
 
     @is_authenticated
     def resolve_order(self, info, id, **kwargs):
@@ -163,6 +305,76 @@ class Query(graphene.ObjectType):
         else:
             qs = ProductRating.objects.filter(added_by=user, id=id)
         return qs.last()
+
+    @is_authenticated
+    def resolve_vendor_review_summary(self, info, date_range=None, start_date=None, end_date=None, **kwargs):
+        user = info.context.user
+        if not user.is_vendor:
+            return {
+                "averageRating": 0,
+                "totalReviews": 0,
+                "newReviews": 0,
+                "responseRate": 0,
+                "distribution": _rating_distribution(ProductRating.objects.none()),
+            }
+        try:
+            qs = _review_date_filter(_vendor_reviews(user.vendor), date_range, start_date, end_date)
+        except ValueError as exc:
+            from apps.bases.utils import raise_graphql_error
+            raise_graphql_error(str(exc), field_name="dateRange")
+        total = qs.count()
+        replied = qs.exclude(reply_text__isnull=True).exclude(reply_text="").count()
+        new_reviews = qs.filter(is_checked=False).count()
+        return {
+            "averageRating": round(qs.aggregate(avg=Avg("rating"))["avg"] or 0, 2),
+            "totalReviews": total,
+            "newReviews": new_reviews,
+            "responseRate": round((replied / total) * 100, 2) if total else 0,
+            "distribution": _rating_distribution(qs),
+        }
+
+    @is_authenticated
+    def resolve_vendor_reviews(
+        self,
+        info,
+        rating=None,
+        date_range=None,
+        start_date=None,
+        end_date=None,
+        search=None,
+        first=10,
+        offset=0,
+        **kwargs
+    ):
+        user = info.context.user
+        if not user.is_vendor:
+            return {"totalCount": 0, "offset": 0, "first": first or 10, "results": []}
+        try:
+            qs = _review_date_filter(_vendor_reviews(user.vendor), date_range, start_date, end_date)
+        except ValueError as exc:
+            from apps.bases.utils import raise_graphql_error
+            raise_graphql_error(str(exc), field_name="dateRange")
+        if rating:
+            qs = qs.filter(rating=rating)
+        if search and str(search).strip():
+            term = str(search).strip()
+            qs = qs.filter(
+                Q(added_by__first_name__icontains=term) |
+                Q(added_by__last_name__icontains=term) |
+                Q(added_by__email__icontains=term) |
+                Q(product__name__icontains=term) |
+                Q(product__title__icontains=term) |
+                Q(description__icontains=term)
+            )
+        total_count = qs.count()
+        first = max(1, min(int(first or 10), 100))
+        offset = max(0, int(offset or 0))
+        return {
+            "totalCount": total_count,
+            "offset": offset,
+            "first": first,
+            "results": [_review_row(review) for review in qs.order_by("-created_on", "-id")[offset:offset + first]],
+        }
 
     @is_authenticated
     def resolve_added_carts(self, info, **kwargs):

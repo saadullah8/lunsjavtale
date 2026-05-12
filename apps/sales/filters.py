@@ -104,6 +104,9 @@ class OrderFilters(BaseFilterOrderBy):
     """
         Order Filters will define here
     """
+    search = django_filters.CharFilter(
+        method="search_filter"
+    )
     company = django_filters.CharFilter(
         field_name="company__id", lookup_expr="exact"
     )
@@ -121,7 +124,22 @@ class OrderFilters(BaseFilterOrderBy):
     )
 
     def company_name_email_filter(self, qs, name, value):
-        return qs.filter(Q(company__name__icontains=value) | Q(company__working_email__icontains=value) | Q(id__icontains=value))
+        query = Q(company__name__icontains=value) | Q(company__working_email__icontains=value)
+        if str(value).isdigit():
+            query |= Q(id=value)
+        return qs.filter(query)
+
+    def search_filter(self, qs, name, value):
+        query = (
+            Q(company__name__icontains=value) |
+            Q(company__working_email__icontains=value) |
+            Q(order_carts__item__name__icontains=value) |
+            Q(order_carts__item__title__icontains=value) |
+            Q(order_carts__item__description__icontains=value)
+        )
+        if str(value).isdigit():
+            query |= Q(id=value)
+        return qs.filter(query).distinct()
 
     def added_for_filter(self, qs, name, value):
         orders = UserCart.objects.filter(

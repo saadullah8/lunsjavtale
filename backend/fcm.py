@@ -1,12 +1,33 @@
 
+# standard library imports
+import os
+from logging import getLogger
+
 # third party imports
 import firebase_admin
 from django.conf import settings
 from firebase_admin import credentials
 from pyfcm import FCMNotification as PYFCMNotification
 
-cred = credentials.Certificate(settings.FIREBASE_CONFIG_PATH)
-firebase_admin.initialize_app(cred)
+logger = getLogger(__name__)
+
+
+def initialize_firebase():
+    if not settings.FIREBASE_CONFIG_PATH or not os.path.exists(settings.FIREBASE_CONFIG_PATH):
+        logger.warning(
+            "Firebase config file not found at %s. Push notifications are disabled.",
+            settings.FIREBASE_CONFIG_PATH,
+        )
+        return False
+
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(settings.FIREBASE_CONFIG_PATH)
+        firebase_admin.initialize_app(cred)
+
+    return True
+
+
+FIREBASE_ENABLED = initialize_firebase()
 
 
 class ExFCMNotification:

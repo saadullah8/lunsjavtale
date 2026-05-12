@@ -9,6 +9,7 @@ from .models import (
     FavoriteProduct,
     FoodMeeting,
     Ingredient,
+    MenuItem,
     Product,
     ProductAttachment,
     WeeklyVariant,
@@ -97,13 +98,22 @@ class ProductFilters(BaseFilterOrderBy):
         field_name='created_on__date', lookup_expr='lte'
     )
     min_price = django_filters.CharFilter(
-        field_name='price', lookup_expr='gte'
+        field_name='price_with_tax', lookup_expr='gte'
     )
     max_price = django_filters.CharFilter(
-        field_name='price', lookup_expr='lte'
+        field_name='price_with_tax', lookup_expr='lte'
     )
     is_vendor_product = django_filters.BooleanFilter(
         method="is_vendor_product_filter"
+    )
+    product_type = django_filters.CharFilter(
+        field_name='product_type', lookup_expr='exact'
+    )
+    menu_status = django_filters.CharFilter(
+        field_name='menu_status', lookup_expr='exact'
+    )
+    pricing_type = django_filters.CharFilter(
+        field_name='pricing_type', lookup_expr='exact'
     )
 
     def category_filter(self, qs, name, value):
@@ -140,6 +150,9 @@ class ProductFilters(BaseFilterOrderBy):
             'availability',
             'is_featured',
             'is_deleted',
+            'product_type',
+            'menu_status',
+            'pricing_type',
         ]
 
 
@@ -165,6 +178,16 @@ class ProductAttachmentFilters(BaseFilterOrderBy):
         fields = [
             'id',
             'is_cover',
+        ]
+
+
+class MenuItemFilters(BaseFilterOrderBy):
+
+    class Meta:
+        model = MenuItem
+        fields = [
+            'id',
+            'is_deleted',
         ]
 
 

@@ -23,7 +23,7 @@ class ProductRatingForm(forms.ModelForm):
 
     class Meta:
         model = ProductRating
-        exclude = ['added_by']
+        exclude = ['added_by', 'order', 'reply_text', 'replied_on', 'attention_required']
 
 
 class BillingAddressForm(forms.ModelForm):

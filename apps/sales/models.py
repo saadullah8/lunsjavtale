@@ -366,10 +366,17 @@ class ProductRating(BaseWithoutID):
         to='users.User', on_delete=models.DO_NOTHING, related_name='user_ratings'
     )
     product = models.ForeignKey(to='scm.Product', on_delete=models.DO_NOTHING, related_name='product_ratings')
+    order = models.ForeignKey(
+        to=Order, on_delete=models.SET_NULL, related_name='product_ratings', blank=True, null=True
+    )
     rating = models.PositiveIntegerField(
         db_index=True, default=1, validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     description = models.TextField(null=True)
+    tags = models.JSONField(default=list, blank=True)
+    reply_text = models.TextField(blank=True, null=True)
+    replied_on = models.DateTimeField(blank=True, null=True)
+    attention_required = models.BooleanField(default=False)
     is_checked = models.BooleanField(default=False)
 
     class Meta:

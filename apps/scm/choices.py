@@ -18,3 +18,20 @@ class ProductStatusChoices(models.TextChoices):
     PENDING = 'pending'
     APPROVED = 'approved'
     REJECTED = 'rejected'
+
+
+class ProductTypeChoices(models.TextChoices):
+    MENU = 'menu'
+    ADD_ON = 'add-on'
+
+
+class MenuStatusChoices(models.TextChoices):
+    ACTIVE = 'active'
+    DRAFT = 'draft'
+    PAUSED = 'paused'
+
+
+class PricingTypeChoices(models.TextChoices):
+    PER_PERSON = 'per-person'
+    FIXED_PACKAGE = 'fixed-package'
+    TRAY_BASED = 'tray-based'

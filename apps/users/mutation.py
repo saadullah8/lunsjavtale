@@ -64,6 +64,8 @@ from .models import (
     UnitOfHistory,
     UserDeviceToken,
     Vendor,
+    VendorDeliverySettings,
+    VendorSettings,
     WithdrawRequest,
 )
 from .object_types import (
@@ -75,6 +77,8 @@ from .object_types import (
     CouponType,
     UserType,
     VendorType,
+    VendorDeliverySettingsType,
+    VendorSettingsType,
 )
 from .tasks import send_email_on_delay
 
@@ -314,6 +318,225 @@ class VendorUpdateMutation(DjangoModelFormMutation):
         )
 
 
+def _get_valid_areas_from_ids(info, valid_area_ids):
+    areas = []
+    for gid in valid_area_ids or []:
+        node = None
+        try:
+            node = graphene.relay.Node.get_node_from_global_id(info, str(gid))
+        except Exception:
+            pass
+        if node is None or not isinstance(node, ValidArea):
+            try:
+                node = ValidArea.objects.filter(pk=int(gid)).first()
+            except (TypeError, ValueError):
+                node = None
+        if node is None or not isinstance(node, ValidArea):
+            raise_graphql_error("One or more area IDs are invalid.", "invalid_valid_area_id")
+        if node.is_active:
+            areas.append(node)
+    return areas
+
+
+VALID_DELIVERY_DAYS = {"su", "mo", "tu", "we", "th", "fr", "sa"}
+DEFAULT_NOTIFICATION_PREFERENCES = {
+    "newOrders": True,
+    "orderUpdates": True,
+    "reviewsAndRatings": True,
+    "promotionsAndTips": True,
+    "emailNotifications": True,
+}
+DEFAULT_REGION_CURRENCY = "NOK"
+DEFAULT_LANGUAGE = "en"
+DEFAULT_TIME_ZONE = "UTC"
+
+
+def _validate_non_negative(value, field_name):
+    if value is not None and value < 0:
+        raise_graphql_error("Value must be zero or greater.", field_name)
+    return value
+
+
+def _normalise_delivery_days(days):
+    invalid_days = [day for day in days or [] if day not in VALID_DELIVERY_DAYS]
+    if invalid_days:
+        raise_graphql_error("Please select valid delivery days.", "deliveryDays")
+    return days or []
+
+
+def _normalise_delivery_time_slots(time_slots):
+    normalised = []
+    for slot in time_slots or []:
+        start = slot.get("start")
+        end = slot.get("end")
+        if not start or not end:
+            raise_graphql_error("Time slot start and end are required.", "deliveryTimeSlots")
+        normalised.append({"start": start, "end": end})
+    return normalised
+
+
+def _sync_delivery_mode(settings, input_data):
+    if input_data.get("delivery_mode"):
+        if settings.delivery_mode == VendorDeliverySettings.DELIVERY:
+            settings.delivery_available = True
+            settings.pickup_available = False
+        elif settings.delivery_mode == VendorDeliverySettings.PICKUP:
+            settings.delivery_available = False
+            settings.pickup_available = True
+        elif settings.delivery_mode == VendorDeliverySettings.BOTH:
+            settings.delivery_available = True
+            settings.pickup_available = True
+        return
+
+    if "delivery_available" in input_data or "pickup_available" in input_data:
+        if settings.delivery_available and settings.pickup_available:
+            settings.delivery_mode = VendorDeliverySettings.BOTH
+        elif settings.delivery_available:
+            settings.delivery_mode = VendorDeliverySettings.DELIVERY
+        elif settings.pickup_available:
+            settings.delivery_mode = VendorDeliverySettings.PICKUP
+
+
+def apply_delivery_settings_input(settings, input_data):
+    delivery_mode = input_data.get("delivery_mode")
+    if delivery_mode and delivery_mode not in dict(VendorDeliverySettings.DELIVERY_MODE_CHOICES):
+        raise_graphql_error("Please select a valid delivery mode.", "deliveryMode")
+
+    nullable_fields = ["pickup_address", "pickup_instructions", "free_delivery_over"]
+    scalar_fields = [
+        "delivery_mode",
+        "delivery_available",
+        "pickup_available",
+        "base_delivery_fee",
+        "same_fee_all_distances",
+        "max_deliveries_per_day",
+        "max_orders_per_time_slot",
+    ]
+    for field in nullable_fields:
+        if field in input_data:
+            setattr(settings, field, input_data.get(field))
+    for field in scalar_fields:
+        if field in input_data and input_data.get(field) is not None:
+            setattr(settings, field, input_data.get(field))
+
+    settings.base_delivery_fee = _validate_non_negative(settings.base_delivery_fee, "baseDeliveryFee")
+    settings.free_delivery_over = _validate_non_negative(settings.free_delivery_over, "freeDeliveryOver")
+    settings.max_deliveries_per_day = _validate_non_negative(
+        settings.max_deliveries_per_day,
+        "maxDeliveriesPerDay",
+    )
+    settings.max_orders_per_time_slot = _validate_non_negative(
+        settings.max_orders_per_time_slot,
+        "maxOrdersPerTimeSlot",
+    )
+    if "delivery_days" in input_data:
+        settings.delivery_days = _normalise_delivery_days(input_data.get("delivery_days"))
+    if "delivery_time_slots" in input_data:
+        settings.delivery_time_slots = _normalise_delivery_time_slots(input_data.get("delivery_time_slots"))
+
+    _sync_delivery_mode(settings, input_data)
+    return settings
+
+
+def _normalise_business_hours(hours):
+    normalised = []
+    seen_days = set()
+    for day_hours in hours or []:
+        day = day_hours.get("day")
+        if day not in VALID_DELIVERY_DAYS:
+            raise_graphql_error("Please select a valid business day.", "businessHours")
+        if day in seen_days:
+            raise_graphql_error("Business hours can contain each day only once.", "businessHours")
+        seen_days.add(day)
+
+        slots = []
+        for slot in day_hours.get("slots") or []:
+            start = slot.get("start")
+            end = slot.get("end")
+            if not start or not end:
+                raise_graphql_error("Business hour slot start and end are required.", "businessHours")
+            slots.append({"start": start, "end": end})
+
+        normalised.append({
+            "day": day,
+            "enabled": bool(day_hours.get("enabled")),
+            "slots": slots,
+        })
+    return normalised
+
+
+def _normalise_notification_preferences(current, preferences):
+    data = {**DEFAULT_NOTIFICATION_PREFERENCES, **(current or {})}
+    if preferences is None:
+        return data
+
+    field_map = {
+        "new_orders": "newOrders",
+        "order_updates": "orderUpdates",
+        "reviews_and_ratings": "reviewsAndRatings",
+        "promotions_and_tips": "promotionsAndTips",
+        "email_notifications": "emailNotifications",
+    }
+    for input_key, output_key in field_map.items():
+        if input_key in preferences and preferences.get(input_key) is not None:
+            data[output_key] = preferences.get(input_key)
+    return data
+
+
+def _validate_established_year(year):
+    if year is None:
+        return year
+    current_year = timezone.now().year
+    if year < 1800 or year > current_year:
+        raise_graphql_error("Please enter a valid established year.", "establishedYear")
+    return year
+
+
+def _reset_vendor_settings(settings):
+    settings.business_description = None
+    settings.business_address = None
+    settings.organization_number = None
+    settings.business_type = None
+    settings.established_year = None
+    settings.business_hours = []
+    settings.notification_preferences = DEFAULT_NOTIFICATION_PREFERENCES.copy()
+    settings.language = DEFAULT_LANGUAGE
+    settings.region_currency = DEFAULT_REGION_CURRENCY
+    settings.time_zone = DEFAULT_TIME_ZONE
+    settings.store_connected = True
+    return settings
+
+
+def apply_vendor_settings_input(settings, input_data):
+    nullable_fields = [
+        "business_description",
+        "business_address",
+        "organization_number",
+        "business_type",
+        "established_year",
+    ]
+    scalar_fields = ["language", "region_currency", "time_zone", "store_connected"]
+
+    for field in nullable_fields:
+        if field in input_data:
+            setattr(settings, field, input_data.get(field))
+    for field in scalar_fields:
+        if field in input_data and input_data.get(field) is not None:
+            setattr(settings, field, input_data.get(field))
+
+    settings.established_year = _validate_established_year(settings.established_year)
+    if "business_hours" in input_data:
+        settings.business_hours = _normalise_business_hours(input_data.get("business_hours"))
+    if "notification_preferences" in input_data:
+        settings.notification_preferences = _normalise_notification_preferences(
+            settings.notification_preferences,
+            input_data.get("notification_preferences"),
+        )
+    elif not settings.notification_preferences:
+        settings.notification_preferences = DEFAULT_NOTIFICATION_PREFERENCES.copy()
+    return settings
+
+
 class SetVendorServiceAreas(graphene.Mutation):
     """
     Set the list of valid areas (postcodes) where the vendor provides service.
@@ -332,32 +555,180 @@ class SetVendorServiceAreas(graphene.Mutation):
         if not getattr(user, 'vendor', None):
             raise_graphql_error("Vendor profile not found.", "vendor_required")
         vendor = user.vendor
-        areas = []
-        for gid in valid_area_ids or []:
-            node = None
-            try:
-                node = graphene.relay.Node.get_node_from_global_id(info, str(gid))
-            except Exception:
-                pass
-            if node is None or not isinstance(node, ValidArea):
-                # Accept raw numeric ID (e.g. from ME query returning pk as id in some clients)
-                try:
-                    pk = int(gid)
-                    node = ValidArea.objects.filter(pk=pk).first()
-                except (TypeError, ValueError):
-                    node = None
-            if node is None or not isinstance(node, ValidArea):
-                raise_graphql_error(
-                    "One or more area IDs are invalid.",
-                    "invalid_valid_area_id"
-                )
-            if node.is_active:
-                areas.append(node)
-        vendor.service_areas.set(areas)
+        vendor.service_areas.set(_get_valid_areas_from_ids(info, valid_area_ids))
         return SetVendorServiceAreas(
             success=True,
             message="Service areas updated.",
             instance=vendor,
+        )
+
+
+class DeliveryTimeSlotInput(graphene.InputObjectType):
+    start = graphene.String(required=True)
+    end = graphene.String(required=True)
+
+
+class VendorDeliverySettingsInput(graphene.InputObjectType):
+    delivery_mode = graphene.String()
+    delivery_available = graphene.Boolean()
+    pickup_available = graphene.Boolean()
+    pickup_address = graphene.String()
+    pickup_instructions = graphene.String()
+    base_delivery_fee = graphene.Decimal()
+    free_delivery_over = graphene.Decimal()
+    same_fee_all_distances = graphene.Boolean()
+    delivery_days = graphene.List(graphene.String)
+    delivery_time_slots = graphene.List(DeliveryTimeSlotInput)
+    max_deliveries_per_day = graphene.Int()
+    max_orders_per_time_slot = graphene.Int()
+    valid_area_ids = graphene.List(graphene.ID)
+
+
+class VendorDeliverySettingsMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorDeliverySettingsType)
+
+    class Arguments:
+        input = VendorDeliverySettingsInput(required=True)
+
+    @is_authenticated
+    def mutate(self, info, input):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+
+        delivery_settings, _ = VendorDeliverySettings.objects.get_or_create(vendor=user.vendor)
+        delivery_settings = apply_delivery_settings_input(delivery_settings, input)
+        delivery_settings.save()
+        if input.get("valid_area_ids") is not None:
+            user.vendor.service_areas.set(_get_valid_areas_from_ids(info, input.get("valid_area_ids")))
+
+        return VendorDeliverySettingsMutation(
+            success=True,
+            message="Delivery settings updated.",
+            instance=delivery_settings,
+        )
+
+
+class VendorKitchenStatusUpdate(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorType)
+
+    class Arguments:
+        is_kitchen_active = graphene.Boolean(required=True)
+
+    @is_authenticated
+    def mutate(self, info, is_kitchen_active):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+        user.vendor.is_kitchen_active = is_kitchen_active
+        user.vendor.save()
+        return VendorKitchenStatusUpdate(
+            success=True,
+            message="Kitchen status updated.",
+            instance=user.vendor,
+        )
+
+
+class BusinessHourSlotInput(graphene.InputObjectType):
+    start = graphene.String(required=True)
+    end = graphene.String(required=True)
+
+
+class BusinessDayHoursInput(graphene.InputObjectType):
+    day = graphene.String(required=True)
+    enabled = graphene.Boolean(required=True)
+    slots = graphene.List(BusinessHourSlotInput)
+
+
+class NotificationPreferencesInput(graphene.InputObjectType):
+    new_orders = graphene.Boolean()
+    order_updates = graphene.Boolean()
+    reviews_and_ratings = graphene.Boolean()
+    promotions_and_tips = graphene.Boolean()
+    email_notifications = graphene.Boolean()
+
+
+class VendorSettingsInput(graphene.InputObjectType):
+    business_description = graphene.String()
+    business_address = graphene.String()
+    organization_number = graphene.String()
+    business_type = graphene.String()
+    established_year = graphene.Int()
+    business_hours = graphene.List(BusinessDayHoursInput)
+    notification_preferences = graphene.Argument(NotificationPreferencesInput)
+    language = graphene.String()
+    region_currency = graphene.String()
+    time_zone = graphene.String()
+    store_connected = graphene.Boolean()
+
+
+class VendorSettingsMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorSettingsType)
+
+    class Arguments:
+        input = VendorSettingsInput(required=True)
+
+    @is_authenticated
+    def mutate(self, info, input):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+
+        settings, _ = VendorSettings.objects.get_or_create(vendor=user.vendor)
+        settings = apply_vendor_settings_input(settings, input)
+        settings.save()
+        return VendorSettingsMutation(
+            success=True,
+            message="Vendor settings updated.",
+            instance=settings,
+        )
+
+
+class VendorSettingsReset(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorSettingsType)
+
+    @is_authenticated
+    def mutate(self, info):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+
+        settings, _ = VendorSettings.objects.get_or_create(vendor=user.vendor)
+        settings = _reset_vendor_settings(settings)
+        settings.save()
+        return VendorSettingsReset(
+            success=True,
+            message="Vendor settings reset.",
+            instance=settings,
+        )
+
+
+class VendorStoreDisconnect(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(VendorSettingsType)
+
+    @is_authenticated
+    def mutate(self, info):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+
+        settings, _ = VendorSettings.objects.get_or_create(vendor=user.vendor)
+        settings.store_connected = False
+        settings.save()
+        return VendorStoreDisconnect(
+            success=True,
+            message="Store disconnected.",
+            instance=settings,
         )
 
 
@@ -2012,6 +2383,11 @@ class Mutation(graphene.ObjectType):
     vendor_creation = VendorMutation.Field()
     vendor_update = VendorUpdateMutation.Field()
     set_vendor_service_areas = SetVendorServiceAreas.Field()
+    vendor_delivery_settings_mutation = VendorDeliverySettingsMutation.Field()
+    vendor_kitchen_status_update = VendorKitchenStatusUpdate.Field()
+    vendor_settings_mutation = VendorSettingsMutation.Field()
+    vendor_settings_reset = VendorSettingsReset.Field()
+    vendor_store_disconnect = VendorStoreDisconnect.Field()
     set_vendor_commission = SetVendorCommission.Field()
     vendor_block_unblock = VendorBlockUnBlock.Field()
     vendor_delete = VendorDelete.Field()

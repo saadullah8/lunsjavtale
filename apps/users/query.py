@@ -17,6 +17,8 @@ from .models import (
     TrackUserLogin,
     UnitOfHistory,
     Vendor,
+    VendorDeliverySettings,
+    VendorSettings,
     WithdrawRequest,
 )
 from .object_types import (
@@ -29,6 +31,8 @@ from .object_types import (
     TrackUserLoginType,
     UserType,
     VendorType,
+    VendorDeliverySettingsType,
+    VendorSettingsType,
     WithdrawRequestType,
 )
 
@@ -52,6 +56,8 @@ class Query(graphene.ObjectType):
     company = graphene.Field(CompanyType, id=graphene.ID())
     vendors = DjangoFilterConnectionField(VendorType)
     vendor = graphene.Field(VendorType, id=graphene.ID())
+    vendor_delivery_settings = graphene.Field(VendorDeliverySettingsType)
+    vendor_settings = graphene.Field(VendorSettingsType)
     client_details = graphene.Field(ClientDetailsType)
     coupons = DjangoFilterConnectionField(CouponType)
     coupon = graphene.Field(CouponType, id=graphene.ID())
@@ -139,6 +145,22 @@ class Query(graphene.ObjectType):
     def resolve_vendor(self, info, id, **kwargs):
         obj = Vendor.objects.filter(id=id).last()
         return obj
+
+    @is_authenticated
+    def resolve_vendor_delivery_settings(self, info, **kwargs):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+        settings, _ = VendorDeliverySettings.objects.get_or_create(vendor=user.vendor)
+        return settings
+
+    @is_authenticated
+    def resolve_vendor_settings(self, info, **kwargs):
+        user = info.context.user
+        if not getattr(user, "vendor", None):
+            raise_graphql_error("Vendor profile not found.", "vendor_required")
+        settings, _ = VendorSettings.objects.get_or_create(vendor=user.vendor)
+        return settings
 
     def resolve_client_details(self, info, **kwargs):
         client = ClientDetails.objects.last()

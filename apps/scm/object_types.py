@@ -2,6 +2,7 @@
 # third party imports
 import graphene
 from graphene_django import DjangoObjectType
+from graphene.types.generic import GenericScalar
 
 # local imports
 from apps.scm.filters import (
@@ -9,6 +10,7 @@ from apps.scm.filters import (
     FavoriteProductFilters,
     FoodMeetingFilters,
     IngredientFilters,
+    MenuItemFilters,
     ProductAttachmentFilters,
     ProductFilters,
     WeeklyVariantFilters,
@@ -20,6 +22,7 @@ from .models import (
     FavoriteProduct,
     FoodMeeting,
     Ingredient,
+    MenuItem,
     Product,
     ProductAttachment,
     WeeklyVariant,
@@ -66,6 +69,10 @@ class ProductType(DjangoObjectType):
     """
     id = graphene.ID(required=True)
     is_favorite = graphene.Boolean()
+    contains = GenericScalar()
+    available_days = GenericScalar()
+    blackout_dates = GenericScalar()
+    dietary_tags = GenericScalar()
 
     class Meta:
         model = Product
@@ -76,6 +83,21 @@ class ProductType(DjangoObjectType):
 
     def resolve_is_favorite(self, info, **kwargs):
         return self.favorites.filter(added_by=info.context.user).exists()
+
+
+class MenuItemType(DjangoObjectType):
+    """
+        define django object type for package menu items
+    """
+    id = graphene.ID(required=True)
+    allergens = GenericScalar()
+
+    class Meta:
+        model = MenuItem
+        filterset_class = MenuItemFilters
+        interfaces = (graphene.relay.Node,)
+        convert_choices_to_enum = False
+        connection_class = CountConnection
 
 
 class IngredientType(DjangoObjectType):

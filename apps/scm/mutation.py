@@ -16,7 +16,7 @@ from apps.notifications.tasks import (
 from backend.permissions import is_admin_user, is_authenticated, is_vendor_user
 
 from ..sales.models import SellCart
-from .choices import MeetingStatusChoices, ProductStatusChoices
+from .choices import MenuStatusChoices, MeetingStatusChoices, PricingTypeChoices, ProductStatusChoices, ProductTypeChoices
 from .forms import (
     CategoryForm,
     FoodMeetingForm,
@@ -30,6 +30,7 @@ from .models import (
     FavoriteProduct,
     FoodMeeting,
     Ingredient,
+    MenuItem,
     Product,
     ProductAttachment,
     WeeklyVariant,
@@ -43,6 +44,172 @@ from .object_types import (
 )
 
 USE_me = True
+
+
+class MenuItemInput(graphene.InputObjectType):
+    id = graphene.ID()
+    title = graphene.String(required=True)
+    allergens = graphene.List(graphene.String)
+    image_url = graphene.String()
+    file_id = graphene.String()
+    order = graphene.Int()
+
+
+class VendorMenuInput(graphene.InputObjectType):
+    id = graphene.ID()
+    name = graphene.String(required=True)
+    title = graphene.String()
+    description = graphene.String(required=True)
+    category = graphene.ID()
+    menu_type = graphene.String()
+    price_with_tax = graphene.Decimal(required=True)
+    tax_percent = graphene.Decimal()
+    pricing_type = graphene.String()
+    minimum_guests = graphene.Int()
+    menu_status = graphene.String()
+    min_lead_time_hours = graphene.Int()
+    available_days = graphene.List(graphene.String)
+    blackout_dates = graphene.List(graphene.String)
+    dietary_tags = graphene.List(graphene.String)
+    custom_dietary = graphene.String()
+    contains = graphene.JSONString()
+    is_adjustable_for_single_staff = graphene.Boolean()
+
+
+class VendorAddOnInput(graphene.InputObjectType):
+    id = graphene.ID()
+    name = graphene.String(required=True)
+    title = graphene.String()
+    description = graphene.String()
+    category = graphene.ID()
+    price_with_tax = graphene.Decimal(required=True)
+    tax_percent = graphene.Decimal()
+    menu_status = graphene.String()
+    dietary_tags = graphene.List(graphene.String)
+    custom_dietary = graphene.String()
+    contains = graphene.JSONString()
+
+
+def validate_choice(value, choices, field_name):
+    if value and value not in choices:
+        raise_graphql_error("Please select a valid choice.", field_name=field_name)
+    return value
+
+
+def get_vendor_product(user, product_id, product_type=None):
+    qs = Product.objects.filter(id=product_id, vendor=user.vendor, is_deleted=False)
+    if product_type:
+        qs = qs.filter(product_type=product_type)
+    obj = qs.last()
+    if not obj:
+        raise_graphql_error("Product not found.", field_name="id")
+    return obj
+
+
+def get_optional_category(category_id):
+    if not category_id:
+        return None
+    category = Category.objects.filter(id=category_id, is_deleted=False).last()
+    if not category:
+        raise_graphql_error("Category not found.", field_name="category")
+    return category
+
+
+def sync_attachments(product, attachments):
+    if attachments is None:
+        return
+    product.attachments.all().delete()
+    for attach in attachments:
+        ProductAttachment.objects.create(
+            product=product,
+            file_url=attach.get('file_url'),
+            file_id=attach.get('file_id'),
+            is_cover=attach.get('is_cover'),
+        )
+
+
+def sync_ingredients(product, ingredients):
+    if ingredients is None:
+        return
+    product.ingredients.clear()
+    for ing in ingredients:
+        product.ingredients.add(Ingredient.objects.get_or_create(name=ing)[0])
+
+
+def sync_menu_items(product, menu_items):
+    if menu_items is None:
+        return
+    existing_ids = []
+    for index, item in enumerate(menu_items, start=1):
+        item_id = item.get('id')
+        defaults = {
+            'title': item.get('title'),
+            'allergens': item.get('allergens') or [],
+            'image_url': item.get('image_url'),
+            'file_id': item.get('file_id'),
+            'order': item.get('order') or index,
+            'is_deleted': False,
+            'deleted_on': None,
+        }
+        if item_id:
+            obj = product.menu_items.filter(id=item_id).last()
+            if not obj:
+                raise_graphql_error("Menu item not found.", field_name="menuItems")
+            for key, value in defaults.items():
+                setattr(obj, key, value)
+            obj.save()
+        else:
+            obj = MenuItem.objects.create(product=product, **defaults)
+        existing_ids.append(obj.id)
+    product.menu_items.exclude(id__in=existing_ids).update(is_deleted=True, deleted_on=timezone.now())
+
+
+def sync_optional_add_ons(product, optional_add_on_ids):
+    if optional_add_on_ids is None:
+        return
+    add_ons = Product.objects.filter(
+        id__in=optional_add_on_ids,
+        vendor=product.vendor,
+        product_type=ProductTypeChoices.ADD_ON,
+        is_deleted=False,
+    )
+    if add_ons.count() != len(set(optional_add_on_ids)):
+        raise_graphql_error("One or more add-ons are invalid.", field_name="optionalAddOnIds")
+    product.optional_add_ons.set(add_ons)
+
+
+def apply_menu_input(product, input_data, product_type):
+    product.product_type = product_type
+    product.name = input_data.get('name')
+    product.title = input_data.get('title') or input_data.get('name')
+    product.description = input_data.get('description') or ""
+    product.category = get_optional_category(input_data.get('category'))
+    product.price_with_tax = input_data.get('price_with_tax')
+    product.tax_percent = input_data.get('tax_percent') or product.tax_percent
+    product.menu_status = validate_choice(
+        input_data.get('menu_status') or product.menu_status or MenuStatusChoices.DRAFT,
+        MenuStatusChoices,
+        "menuStatus",
+    )
+    product.dietary_tags = input_data.get('dietary_tags') or []
+    product.custom_dietary = input_data.get('custom_dietary')
+    product.contains = input_data.get('contains')
+    if product_type == ProductTypeChoices.MENU:
+        product.menu_type = input_data.get('menu_type')
+        product.pricing_type = validate_choice(
+            input_data.get('pricing_type') or product.pricing_type or PricingTypeChoices.PER_PERSON,
+            PricingTypeChoices,
+            "pricingType",
+        )
+        product.minimum_guests = input_data.get('minimum_guests') or 1
+        product.min_lead_time_hours = input_data.get('min_lead_time_hours') or 24
+        product.available_days = input_data.get('available_days') or []
+        product.blackout_dates = input_data.get('blackout_dates') or []
+        product.is_adjustable_for_single_staff = bool(input_data.get('is_adjustable_for_single_staff'))
+    product.availability = product.menu_status == MenuStatusChoices.ACTIVE
+    product.status = ProductStatusChoices.APPROVED
+    product.save()
+    return product
 
 
 class CategoryMutation(DjangoModelFormMutation):
@@ -425,6 +592,203 @@ class VendorProductMutation(graphene.Mutation):
         )
 
 
+class VendorMenuMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(ProductType)
+
+    class Arguments:
+        input = VendorMenuInput(required=True)
+        ingredients = graphene.List(graphene.String)
+        attachments = graphene.List(ProductAttachmentInput)
+        menu_items = graphene.List(MenuItemInput)
+        optional_add_on_ids = graphene.List(graphene.ID)
+
+    @is_vendor_user
+    def mutate(self, info, input, ingredients=None, attachments=None, menu_items=None, optional_add_on_ids=None):
+        user = info.context.user
+        product = Product(vendor=user.vendor)
+        if input.get('id'):
+            product = get_vendor_product(user, input.get('id'), ProductTypeChoices.MENU)
+        product = apply_menu_input(product, input, ProductTypeChoices.MENU)
+        sync_ingredients(product, ingredients)
+        sync_attachments(product, attachments)
+        sync_menu_items(product, menu_items)
+        sync_optional_add_ons(product, optional_add_on_ids)
+        return VendorMenuMutation(
+            success=True,
+            message=f"Successfully {'updated' if input.get('id') else 'created'}",
+            instance=product,
+        )
+
+
+class VendorAddOnMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(ProductType)
+
+    class Arguments:
+        input = VendorAddOnInput(required=True)
+        attachments = graphene.List(ProductAttachmentInput)
+
+    @is_vendor_user
+    def mutate(self, info, input, attachments=None):
+        user = info.context.user
+        product = Product(vendor=user.vendor)
+        if input.get('id'):
+            product = get_vendor_product(user, input.get('id'), ProductTypeChoices.ADD_ON)
+        product = apply_menu_input(product, input, ProductTypeChoices.ADD_ON)
+        sync_attachments(product, attachments)
+        return VendorAddOnMutation(
+            success=True,
+            message=f"Successfully {'updated' if input.get('id') else 'created'}",
+            instance=product,
+        )
+
+
+class VendorMenuStatusUpdate(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(ProductType)
+
+    class Arguments:
+        id = graphene.ID(required=True)
+        menu_status = graphene.String(required=True)
+
+    @is_vendor_user
+    def mutate(self, info, id, menu_status):
+        validate_choice(menu_status, MenuStatusChoices, "menuStatus")
+        product = get_vendor_product(info.context.user, id)
+        product.menu_status = menu_status
+        product.availability = menu_status == MenuStatusChoices.ACTIVE
+        product.save()
+        return VendorMenuStatusUpdate(
+            success=True,
+            message="Successfully updated",
+            instance=product,
+        )
+
+
+class VendorMenuDelete(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    class Arguments:
+        id = graphene.ID(required=True)
+
+    @is_vendor_user
+    def mutate(self, info, id):
+        product = get_vendor_product(info.context.user, id)
+        product.is_deleted = True
+        product.deleted_on = timezone.now()
+        product.save()
+        product.menu_items.update(is_deleted=True, deleted_on=timezone.now())
+        return VendorMenuDelete(success=True, message="Successfully deleted")
+
+
+class VendorMenuDuplicate(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(ProductType)
+
+    class Arguments:
+        id = graphene.ID(required=True)
+        name = graphene.String()
+
+    @is_vendor_user
+    def mutate(self, info, id, name=None):
+        source = get_vendor_product(info.context.user, id)
+        source_ingredients = list(source.ingredients.all())
+        source_add_ons = list(source.optional_add_ons.all())
+        source_attachments = list(source.attachments.all())
+        source_items = list(source.menu_items.filter(is_deleted=False))
+        duplicate = Product.objects.create(
+            name=name or f"{source.name} Copy",
+            title=name or f"{source.name} Copy",
+            description=source.description,
+            category=source.category,
+            vendor=source.vendor,
+            contains=source.contains,
+            discount_availability=source.discount_availability,
+            is_adjustable_for_single_staff=source.is_adjustable_for_single_staff,
+            is_featured=source.is_featured,
+            order=source.order,
+            status=source.status,
+            note=source.note,
+            product_type=source.product_type,
+            menu_status=MenuStatusChoices.DRAFT,
+            pricing_type=source.pricing_type,
+            menu_type=source.menu_type,
+            minimum_guests=source.minimum_guests,
+            min_lead_time_hours=source.min_lead_time_hours,
+            available_days=source.available_days,
+            blackout_dates=source.blackout_dates,
+            dietary_tags=source.dietary_tags,
+            custom_dietary=source.custom_dietary,
+            availability=False,
+            price_with_tax=source.price_with_tax,
+            tax_percent=source.tax_percent,
+        )
+        duplicate.ingredients.set(source_ingredients)
+        duplicate.optional_add_ons.set(source_add_ons)
+        for attach in source_attachments:
+            ProductAttachment.objects.create(
+                product=duplicate,
+                file_url=attach.file_url,
+                file_id=attach.file_id,
+                is_cover=attach.is_cover,
+            )
+        for item in source_items:
+            MenuItem.objects.create(
+                product=duplicate,
+                title=item.title,
+                allergens=item.allergens,
+                image_url=item.image_url,
+                file_id=item.file_id,
+                order=item.order,
+            )
+        return VendorMenuDuplicate(
+            success=True,
+            message="Successfully duplicated",
+            instance=duplicate,
+        )
+
+
+class VendorMenuCopyItems(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    instance = graphene.Field(ProductType)
+
+    class Arguments:
+        source_menu_id = graphene.ID(required=True)
+        target_menu_id = graphene.ID(required=True)
+        menu_item_ids = graphene.List(graphene.ID, required=True)
+
+    @is_vendor_user
+    def mutate(self, info, source_menu_id, target_menu_id, menu_item_ids):
+        user = info.context.user
+        source = get_vendor_product(user, source_menu_id, ProductTypeChoices.MENU)
+        target = get_vendor_product(user, target_menu_id, ProductTypeChoices.MENU)
+        items = source.menu_items.filter(id__in=menu_item_ids, is_deleted=False)
+        if items.count() != len(set(menu_item_ids)):
+            raise_graphql_error("One or more menu items are invalid.", field_name="menuItemIds")
+        start_order = target.menu_items.filter(is_deleted=False).count() + 1
+        for index, item in enumerate(items, start=start_order):
+            MenuItem.objects.create(
+                product=target,
+                title=item.title,
+                allergens=item.allergens,
+                image_url=item.image_url,
+                file_id=item.file_id,
+                order=index,
+            )
+        return VendorMenuCopyItems(
+            success=True,
+            message="Successfully copied",
+            instance=target,
+        )
+
+
 class VerifyVendorProduct(graphene.Mutation):
     """
         While Verify vendor product Admin have to choose action
@@ -549,6 +913,12 @@ class Mutation(graphene.ObjectType):
     product_mutation = ProductMutation.Field()
     product_delete = ProductDeleteMutation.Field()
     vendor_product_mutation = VendorProductMutation.Field()
+    vendor_menu_mutation = VendorMenuMutation.Field()
+    vendor_add_on_mutation = VendorAddOnMutation.Field()
+    vendor_menu_status_update = VendorMenuStatusUpdate.Field()
+    vendor_menu_delete = VendorMenuDelete.Field()
+    vendor_menu_duplicate = VendorMenuDuplicate.Field()
+    vendor_menu_copy_items = VendorMenuCopyItems.Field()
     verify_vendor_product = VerifyVendorProduct.Field()
     food_meeting_mutation = FoodMeetingMutation.Field()
     food_meeting_resolve = FoodMeetingResolve.Field()
