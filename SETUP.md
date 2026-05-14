@@ -7,7 +7,7 @@ Run these commands from the **repo root** (same folder as `manage.py`). Use a si
 ## 1) Virtual environment
 
 ```bash
-cd "/Users/umarhabib/D-Drive/nouman react client/liveproject/lunsjavtale-master"
+cd "." # Go to the project root directory
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -95,7 +95,7 @@ Ensure venv is activated and you’re in the repo root.
 
 ```bash
 source .venv/bin/activate
-cd "/Users/umarhabib/D-Drive/nouman react client/liveproject/lunsjavtale-master"
+cd "." # Go to the project root directory
 ```
 
 **Migrations:**
@@ -158,7 +158,7 @@ celery -A backend worker -l info
 ## Quick reference – order of commands
 
 ```bash
-cd "/Users/umarhabib/D-Drive/nouman react client/liveproject/lunsjavtale-master"
+cd "." # Go to the project root directory
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
