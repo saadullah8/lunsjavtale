@@ -409,6 +409,16 @@ class User(BaseWithoutID, AbstractBaseUser, SoftDeletion, PermissionsMixin):
         null=True,
         blank=True
     )
+    secondary_email = models.EmailField(
+        max_length=100,
+        null=True,
+        blank=True
+    )
+    work_phone = models.CharField(
+        max_length=15,
+        null=True,
+        blank=True
+    )
     post_code = models.PositiveIntegerField(
         _("post code"),
         null=True,
@@ -429,6 +439,20 @@ class User(BaseWithoutID, AbstractBaseUser, SoftDeletion, PermissionsMixin):
         max_length=64,
         blank=True, null=True
     )
+    company_name = models.CharField(
+        max_length=256,
+        blank=True, null=True
+    )
+    industry_usage = models.CharField(
+        max_length=128,
+        blank=True, null=True
+    )
+    notification_preferences = models.JSONField(
+        default=dict,
+        blank=True
+    )
+    reward_points = models.IntegerField(default=0)
+    rewards_enabled = models.BooleanField(default=True)
     date_of_birth = models.DateField(
         blank=True,
         null=True
@@ -661,7 +685,7 @@ class ResetPassword(BaseWithoutID):
         User,
         on_delete=models.CASCADE
     )
-    token = models.UUIDField()
+    token = models.CharField(max_length=255)
 
     objects = UserPasswordResetManager()
 
@@ -747,18 +771,30 @@ class Address(BaseWithoutID, SoftDeletion):
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
-        related_name="addresses"
+        related_name="addresses",
+        null=True, blank=True
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="addresses",
+        null=True, blank=True
+    )
+    location_name = models.CharField(
+        max_length=256, null=True, blank=True
     )
     address_type = models.CharField(
-        max_length=64, null=True
+        max_length=64, null=True, default="delivery" # 'delivery' or 'invoice'
     )
-    address = models.TextField()
-    post_code = models.PositiveIntegerField()
+    address = models.TextField() # Street address
+    unit_floor = models.CharField(
+        max_length=128, blank=True, null=True
+    )
     city = models.CharField(max_length=128, blank=True, null=True)
     state = models.CharField(max_length=128, blank=True, null=True)
-    country = models.CharField(max_length=128, blank=True, null=True)
-    full_name = models.CharField(max_length=128, null=True, blank=True)
+    post_code = models.CharField(max_length=16, blank=True, null=True)
     phone = models.CharField(max_length=15, null=True, blank=True)
+    receiving_name = models.CharField(max_length=128, null=True, blank=True) # Ask for
     instruction = models.TextField(blank=True, null=True)
     default = models.BooleanField(default=False)
 
@@ -772,10 +808,49 @@ class Address(BaseWithoutID, SoftDeletion):
 
     def save(self, *args, **kwargs):
         if self.default:
-            self.company.addresses.exclude(id=self.pk).update(default=False)
-        if not self.company.addresses.filter(default=True).exists():
+            qs = Address.objects.filter(address_type=self.address_type)
+            if self.user:
+                qs = qs.filter(user=self.user)
+            if self.company:
+                qs = qs.filter(company=self.company)
+            qs.exclude(id=self.pk).update(default=False)
+        
+        # Ensure at least one default exists per type
+        owner_filter = {'user': self.user} if self.user else {'company': self.company}
+        if not Address.objects.filter(address_type=self.address_type, default=True, **owner_filter).exists():
             self.default = True
         super(Address, self).save(*args, **kwargs)
+
+
+class RewardTransaction(BaseWithoutID):
+    """
+    Tracks earning and spending of reward points.
+    """
+    EARN = "earn"
+    SPEND = "spend"
+    TYPE_CHOICES = (
+        (EARN, "Earned"),
+        (SPEND, "Spent")
+    )
+    
+    SOURCE_ORDER = "order"
+    SOURCE_REVIEW = "review"
+    SOURCE_REFERRAL = "referral"
+    SOURCE_CHOICES = (
+        (SOURCE_ORDER, "Order Placement"),
+        (SOURCE_REVIEW, "Write Review"),
+        (SOURCE_REFERRAL, "Invite Friends")
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reward_transactions")
+    transaction_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    source = models.CharField(max_length=32, choices=SOURCE_CHOICES)
+    points = models.IntegerField()
+    description = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        db_table = f"{settings.DB_PREFIX}_reward_transactions"
+        ordering = ['-created_on']
 
 
 class CompanyBillingAddress(BaseWithoutID):

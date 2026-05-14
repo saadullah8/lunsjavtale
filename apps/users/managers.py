@@ -108,6 +108,14 @@ class UserPasswordResetManager(BaseUserManager):
         except self.model.DoesNotExist:
             return False
 
+    def check_pin(self, pin, email):
+        """
+        Check if PIN is valid without deleting it.
+        """
+        if not pin:
+            return False
+        return self.filter(token=pin, user__email=email).exists()
+
     def create_or_update(self, user, token):  # no need to use as django provide update_or_create
         """
             update or create new token

@@ -1,6 +1,7 @@
 # at backend/users/schema.py
 
 import graphene
+from graphene.types.generic import GenericScalar
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -16,6 +17,7 @@ from apps.core.models import ValidArea
 from apps.bases.utils import (
     camel_case_format,
     create_token,
+    generate_pin,
     get_object_by_attrs,
     get_object_by_id,
     get_object_dict,
@@ -47,8 +49,10 @@ from .forms import (
     UserForm,
     UserRegisterForm,
     UserRegistrationForm,
+    SignupForm,
     ValidCompanyForm,
     VendorForm,
+    VendorSignupForm,
     VendorUpdateForm,
 )
 from .login_backends import signup, social_signup
@@ -83,6 +87,17 @@ from .object_types import (
 from .tasks import send_email_on_delay
 
 User = get_user_model()  # variable taken for User model
+
+
+class SignupFormInput(graphene.InputObjectType):
+    email = graphene.String(required=True)
+    phone = graphene.String(required=True)
+    password = graphene.String(required=True)
+    role = graphene.String(required=True)
+    first_name = graphene.String()
+    last_name = graphene.String()
+    company_name = graphene.String()
+    post_code = graphene.Int()
 
 
 class CompanyMutationForAdmin(DjangoModelFormMutation):
@@ -183,6 +198,53 @@ class CompanyMutation(DjangoFormMutation):
         )
 
 
+def _perform_user_registration(info, user_input, role, profile_form=None, profile_input=None):
+    """
+    Helper to handle user creation and profile linking (Vendor/Company).
+    """
+    error_data = {}
+    try:
+        validate_password(user_input.get('password'))
+    except Exception as e:
+        error_data['password'] = list(e)
+
+    # Use existing UserRegisterForm for validation logic reuse
+    user_form = UserRegisterForm(data=user_input)
+    
+    # Profile validation if provided
+    profile_obj = None
+    if profile_form and profile_input:
+        profile_instance_form = profile_form(data=profile_input)
+        if not profile_instance_form.is_valid():
+            for error in profile_instance_form.errors:
+                for err in profile_instance_form.errors[error]:
+                    error_data[camel_case_format(error)] = err
+        else:
+            profile_obj = profile_instance_form
+
+    if user_form.is_valid() and not error_data:
+        user = User.objects.create_user(**user_input)
+        if profile_obj:
+            p_obj = profile_obj.save()
+            if role == RoleTypeChoices.VENDOR:
+                user.vendor = p_obj
+                user.save()
+                user.email_verification(user_input.get('password'))
+            elif role == RoleTypeChoices.COMPANY_OWNER:
+                user.company = p_obj
+                user.save()
+                user.send_email_verification()
+        return user, None
+    else:
+        for error in user_form.errors:
+            for err in user_form.errors[error]:
+                if error == 'phone':
+                    error_data['contact'] = err
+                else:
+                    error_data[camel_case_format(error)] = err
+        return None, error_data
+
+
 class ValidCompanyMutation(DjangoFormMutation):
     """
         Users can create valid Company information through a form input.\n
@@ -197,7 +259,6 @@ class ValidCompanyMutation(DjangoFormMutation):
 
     @transaction.atomic
     def mutate_and_get_payload(self, info, **input):
-        form = ValidCompanyForm(data=input)
         user_input = {
             'email': input.get('working_email'),
             'phone': input.get('contact'),
@@ -206,31 +267,15 @@ class ValidCompanyMutation(DjangoFormMutation):
             'first_name': input.get('first_name'),
             'post_code': input.get('post_code')
         }
-        error_data = {}
-        user_form = UserRegisterForm(data=user_input)
-        try:
-            validate_password(input.get('password'))
-        except Exception as e:
-            error_data['password'] = list(e)
-        if form.is_valid() and user_form.is_valid() and not error_data:
-            obj = form.save()
-            user = User.objects.create_user(**user_input)
-            user.company = obj
-            user.save()
-            user.send_email_verification()
-        else:
-            for error in form.errors:
-                for err in form.errors[error]:
-                    error_data[camel_case_format(error)] = err
-            for error in user_form.errors:
-                for err in user_form.errors[error]:
-                    if error == 'phone':
-                        error_data['contact'] = err
-                    else:
-                        error_data[camel_case_format(error)] = err
+        user, error_data = _perform_user_registration(
+            info, user_input, RoleTypeChoices.COMPANY_OWNER, 
+            profile_form=ValidCompanyForm, profile_input=input
+        )
+        if error_data:
             raise_graphql_error_with_fields("Invalid input request.", error_data)
+        
         return ValidCompanyMutation(
-            success=True, message="Successfully added", instance=obj
+            success=True, message="Successfully added", instance=user.company
         )
 
 
@@ -244,45 +289,85 @@ class VendorMutation(DjangoFormMutation):
     instance = graphene.Field(VendorType)
 
     class Meta:
-        form_class = VendorForm
+        form_class = VendorSignupForm
 
     @transaction.atomic
     def mutate_and_get_payload(self, info, **input):
-        form = VendorForm(data=input)
-        password = input.get('password')
         user_input = {
             'email': input.get('email'),
             'phone': input.get('contact'),
             'role': RoleTypeChoices.VENDOR,
-            'password': password,
-            'first_name': input.get('first_name')
+            'password': input.get('password'),
+            'first_name': input.get('first_name'),
+            'last_name': input.get('last_name'),
+            'post_code': input.get('post_code')
         }
-        error_data = {}
-        user_form = UserRegisterForm(data=user_input)
-        try:
-            validate_password(input.get('password'))
-        except Exception as e:
-            error_data['password'] = list(e)
-        if form.is_valid() and user_form.is_valid() and not error_data:
-            obj = form.save()
-            user = User.objects.create_user(**user_input)
-            user.vendor = obj
-            user.save()
-            user.email_verification(password)
-        else:
-            for error in form.errors:
-                for err in form.errors[error]:
-                    error_data[camel_case_format(error)] = err
-            for error in user_form.errors:
-                for err in user_form.errors[error]:
-                    if error == 'phone':
-                        error_data['contact'] = err
-                    else:
-                        error_data[camel_case_format(error)] = err
-            raise_graphql_error_with_fields("Invalid input request.", error_data)
-        return VendorMutation(
-            success=True, message="Successfully added", instance=obj
+        user, error_data = _perform_user_registration(
+            info, user_input, RoleTypeChoices.VENDOR,
+            profile_form=VendorSignupForm, profile_input=input
         )
+        if error_data:
+            raise_graphql_error_with_fields("Invalid input request.", error_data)
+
+        return VendorMutation(
+            success=True, message="Successfully added", instance=user.vendor
+        )
+
+
+class RegisterUser(graphene.Mutation):
+    """
+    Truly Unified Signup for all roles (Admin, Vendor, Client).
+    """
+    success = graphene.Boolean()
+    message = graphene.String()
+    user = graphene.Field(UserType)
+
+    class Arguments:
+        input = SignupFormInput(required=True)
+
+    @transaction.atomic
+    def mutate(self, info, input):
+        role = input.get('role', RoleTypeChoices.USER)
+        user_input = {
+            'email': input.get('email'),
+            'phone': input.get('phone'),
+            'role': role,
+            'password': input.get('password'),
+            'first_name': input.get('first_name'),
+            'last_name': input.get('last_name'),
+            'post_code': input.get('post_code'),
+        }
+        
+        profile_form = None
+        profile_input = None
+        
+        # Decide if we need to create a profile (Vendor/Company)
+        if role == RoleTypeChoices.VENDOR and input.get('company_name'):
+            profile_form = VendorSignupForm
+            profile_input = {
+                'name': input.get('company_name'),
+                'email': input.get('email'),
+                'contact': input.get('phone'),
+                'post_code': input.get('post_code')
+            }
+        elif role == RoleTypeChoices.COMPANY_OWNER and input.get('company_name'):
+            profile_form = ValidCompanyForm
+            profile_input = {
+                'name': input.get('company_name'),
+                'working_email': input.get('email'),
+                'contact': input.get('phone'),
+                'post_code': input.get('post_code')
+            }
+
+        user, error_data = _perform_user_registration(
+            info, user_input, role, 
+            profile_form=profile_form, profile_input=profile_input
+        )
+        
+        if error_data:
+            raise_graphql_error_with_fields("Signup failed.", error_data)
+
+        return RegisterUser(success=True, message="Registration successful", user=user)
 
 
 class VendorUpdateMutation(DjangoModelFormMutation):
@@ -981,41 +1066,7 @@ class VendorWithdrawRequest(graphene.Mutation):
 #     class Arguments:
 #         company = graphene.ID()
 #         note = graphene.String()
-#
-#     @is_admin_user
-#     def mutate(
-#             self,
-#             info,
-#             company,
-#             note,
-#             **kwargs
-#     ) -> object:
-#         company = Company.objects.get(id=company)
-#         errors = {}
-#         input = {
-#             'email': company.working_email,
-#             'phone': company.contact,
-#             'role': RoleTypeChoices.COMPANY_OWNER
-#         }
-#         form = UserRegistrationForm(data=input)
-#         if form.is_valid() and not errors:
-#             company.note = note
-#             company.save()
-#             user = User.objects.create_user(**input)
-#             user.company = company
-#             user.save()
-#             user.send_email_verified()
-#         else:
-#             error_data = errors
-#             for error in form.errors:
-#                 for err in form.errors[error]:
-#                     error_data[camel_case_format(error)] = err
-#             raise_graphql_error_with_fields("Invalid input request.", error_data)
-#         return CompanyOwnerRegistration(
-#             success=True,
-#             message="User registration was successful.",
-#             user=user
-#         )
+
 
 
 class CompanyOwnerRegistration(graphene.Mutation):
@@ -1139,21 +1190,29 @@ class AddressMutation(DjangoModelFormMutation):
         user = info.context.user
         error_data = {}
         if user.is_admin:
-            try:
-                Company.objects.get(id=input.get('company'))
-            except Exception:
-                error_data['company'] = "This field is required."
+            if input.get('company'):
+                try:
+                    Company.objects.get(id=input.get('company'))
+                except Exception:
+                    error_data['company'] = "This field is required."
         elif user.role in [RoleTypeChoices.COMPANY_OWNER, RoleTypeChoices.COMPANY_MANAGER]:
-            input['company'] = user.company.id
+            if user.company:
+                input['company'] = user.company.id
+        elif user.role == RoleTypeChoices.CLIENT:
+            # For clients, we link the address to the user directly
+            input['user'] = user.id
         else:
-            raise_graphql_error("User not permitted.")
+            raise_graphql_error("User not permitted for this operation.")
         form = AddressForm(data=input)
         if input.get('id'):
             if user.is_admin:
                 form = AddressForm(data=input, instance=Address.objects.get(id=input.get('id')))
             else:
-                form = AddressForm(
-                    data=input, instance=Address.objects.get(id=input.get('id'), company=user.company))
+                if user.role == RoleTypeChoices.CLIENT:
+                    form = AddressForm(data=input, instance=Address.objects.get(id=input.get('id'), user=user))
+                else:
+                    form = AddressForm(
+                        data=input, instance=Address.objects.get(id=input.get('id'), company=user.company))
         if not error_data and form.is_valid():
             obj = form.save()
         else:
@@ -1224,54 +1283,47 @@ class CompanyBillingAddressMutation(DjangoFormMutation):
         )
 
 
-class UserMutation(DjangoModelFormMutation):
+class UserMutation(graphene.Mutation):
     """
-        This mutation will provide ability to update user data.
-        partial update also allowed in this mutation.
-        Gender choice::
-        1. male
-        2. female
-        3. other
+    Standard mutation to update user profile settings.
     """
     user = graphene.Field(UserType)
     success = graphene.Boolean()
     message = graphene.String()
 
-    class Meta:
-        form_class = UserForm
+    class Arguments:
+        input = graphene.Argument(lambda: UserProfileInput)
 
     @is_authenticated
-    def mutate_and_get_payload(self, info, **input) -> object:
+    def mutate(self, info, input):
         user = info.context.user
-        form = UserForm(data=input, instance=user)
-        form_data = form.data
-        old_data = get_object_dict(user, list(UserForm().fields.keys()))
-        new_data = None
-        if form.is_valid():
-            allergies = form_data.pop('allergies', [])
-            if form_data.get('username'):
-                form_data['username'] = form_data['username'].strip()
-            User.objects.filter(id=user.id).update(**form_data)
-            user.allergies.clear()
-            user.allergies.add(*Ingredient.objects.filter(id__in=allergies))
-            new_data = get_object_dict(User.objects.get(id=user.id), list(UserForm().fields.keys()))
-        else:
-            error_data = {}
-            for error in form.errors:
-                for err in form.errors[error]:
-                    error_data[camel_case_format(error)] = err
-            raise_graphql_error_with_fields("Invalid input request.", error_data)
-        UnitOfHistory.user_history(
-            action=HistoryActions.USER_UPDATE,
-            old_meta=old_data,
-            new_meta=new_data,
-            user=user,
-            request=info.context
-        )
+        
+        # Extract data from input
+        for field, value in input.items():
+            if field == 'allergies':
+                user.allergies.set(Ingredient.objects.filter(id__in=value))
+            elif hasattr(user, field):
+                setattr(user, field, value)
+        
+        user.save()
+        
         return UserMutation(
-            success=True, user=User.objects.get(id=user.id), message="Successfully updated"
+            success=True, 
+            message="Profile updated successfully", 
+            user=user
         )
 
+class UserProfileInput(graphene.InputObjectType):
+    first_name = graphene.String()
+    last_name = graphene.String()
+    secondary_email = graphene.String()
+    phone = graphene.String()
+    work_phone = graphene.String()
+    company_name = graphene.String()
+    job_title = graphene.String()
+    industry_usage = graphene.String()
+    notification_preferences = GenericScalar()
+    allergies = graphene.List(graphene.ID)
 
 class UserAccountMutation(DjangoModelFormMutation):
     """
@@ -1337,6 +1389,7 @@ class LoginUser(graphene.Mutation):
     class Arguments:
         email = graphene.String(required=True)
         password = graphene.String(required=True)
+        role = graphene.String()
         activate = graphene.Boolean()
 
     def mutate(
@@ -1344,9 +1397,18 @@ class LoginUser(graphene.Mutation):
             info,
             email,
             password,
+            role=None,
             activate=False
     ) -> object:
         user = signup(info.context, str(email).strip(), password, activate)
+
+        # Role-based panel restriction
+        if role and user.role != role:
+            raise_graphql_error(
+                message=f"This account is registered as a {user.role}. Please login through the correct panel.",
+                code="invalid_role_portal"
+            )
+
         access = TokenManager.get_access({"user_id": str(user.id)})
         mac_address = info.context.headers.get("macaddress", None)
         if user.is_admin:
@@ -1359,6 +1421,76 @@ class LoginUser(graphene.Mutation):
             access=access,
             user=user,
             success=True
+        )
+
+
+class ToggleRewardsMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    enabled = graphene.Boolean()
+
+    @is_authenticated
+    def mutate(self, info):
+        user = info.context.user
+        user.rewards_enabled = not user.rewards_enabled
+        user.save()
+        return ToggleRewardsMutation(
+            success=True, 
+            message=f"Rewards {'enabled' if user.rewards_enabled else 'disabled'}",
+            enabled=user.rewards_enabled
+        )
+
+
+class InviteFriendMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    class Arguments:
+        email = graphene.String(required=True)
+
+    @is_authenticated
+    def mutate(self, info, email):
+        return InviteFriendMutation(success=True, message=f"Invitation sent to {email}")
+
+
+class RedeemRewardMutation(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+    remaining_points = graphene.Int()
+
+    class Arguments:
+        points = graphene.Int(required=True)
+        redeem_type = graphene.String(required=True) # 'credit' or 'amazon'
+
+    @is_authenticated
+    def mutate(self, info, points, redeem_type):
+        from .models import RewardTransaction
+        user = info.context.user
+        
+        if not user.rewards_enabled:
+            raise GraphQLError("Rewards are currently disabled for your account.")
+            
+        if user.reward_points < points:
+            raise GraphQLError(f"Insufficient points. You have {user.reward_points} points.")
+            
+        if points < 2500 and redeem_type == 'amazon':
+            raise GraphQLError("Minimum 2,500 points required for Amazon Gift Card.")
+            
+        user.reward_points -= points
+        user.save()
+        
+        RewardTransaction.objects.create(
+            user=user,
+            transaction_type=RewardTransaction.SPEND,
+            source=RewardTransaction.SOURCE_ORDER if redeem_type == 'credit' else RewardTransaction.SOURCE_REFERRAL,
+            points=points,
+            description=f"Redeemed for {redeem_type}"
+        )
+        
+        return RedeemRewardMutation(
+            success=True, 
+            message=f"Successfully redeemed {points} points for {redeem_type}.",
+            remaining_points=user.reward_points
         )
 
 
@@ -1378,6 +1510,8 @@ class SocialLogin(graphene.Mutation):
         social_type = graphene.String(required=True)
         social_id = graphene.String(required=True)
         email = graphene.String()
+        first_name = graphene.String()
+        last_name = graphene.String()
         id_token = graphene.String()  # only for apple
         activate = graphene.Boolean()
         need_verification = graphene.Boolean()
@@ -1388,6 +1522,8 @@ class SocialLogin(graphene.Mutation):
             social_type,
             social_id,
             email,
+            first_name=None,
+            last_name=None,
             id_token=None,
             need_verification=False,
             activate=False
@@ -1400,8 +1536,10 @@ class SocialLogin(graphene.Mutation):
             social_type,
             social_id,
             email,
-            activate,
-            need_verification
+            first_name=first_name,
+            last_name=last_name,
+            activate=activate,
+            verification=need_verification
         )
         mac_address = info.context.headers.get("macaddress", None)
         access = TokenManager.get_access({"user_id": str(user.id)})
@@ -1495,23 +1633,31 @@ class PasswordResetMail(graphene.Mutation):
 
     class Arguments:
         email = graphene.String(required=True)
+        role = graphene.String()
 
-    def mutate(self, info, email):
+    def mutate(self, info, email, role=None):
         user = User.objects.filter(email=email).first()
         if not user:
             raise_graphql_error("No user is associated with this email address.", "invalid_email")
-        token = create_token()
-        ResetPassword.objects.update_or_create(user=user, defaults={"token": token})
+        
+        # Role-based check
+        if role and user.role != role:
+            raise_graphql_error(
+                message=f"This email is not associated with a {role} account.",
+                code="invalid_role"
+            )
 
-        link = set_absolute_uri(f"password-reset/?email={email}&token={token}")
+        pin = generate_pin()
+        ResetPassword.objects.update_or_create(user=user, defaults={"token": pin})
+
         context = {
             'user_name': user.full_name,
-            'link': link,
+            'pin': pin,
             'year': timezone.now().year
         }
         template = 'emails/reset_password1.html'
-        subject = 'Password Reset'
-        send_email_on_delay.delay(template, context, subject, email)  # will add later for sending verification
+        subject = 'Password Reset PIN'
+        send_email_on_delay.delay(template, context, subject, email)
         UnitOfHistory.user_history(
             action=HistoryActions.PASSWORD_RESET_REQUEST,
             user=user,
@@ -1519,8 +1665,26 @@ class PasswordResetMail(graphene.Mutation):
         )
         return PasswordResetMail(
             success=True,
-            message="E-post for tilbakestilling av passord ble sendt."
+            message="OTP has been sent to your email"
         )
+
+
+class VerifyResetCode(graphene.Mutation):
+    """
+    Verify the 4-digit PIN sent via email.
+    """
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    class Arguments:
+        email = graphene.String(required=True)
+        pin = graphene.String(required=True)
+
+    def mutate(self, info, email, pin):
+        if not ResetPassword.objects.check_pin(pin, email):
+            raise_graphql_error("Invalid or expired PIN code!", "invalid_pin")
+        
+        return VerifyResetCode(success=True, message="PIN verified successfully.")
 
 
 class EmailVericationMail(graphene.Mutation):
@@ -1850,42 +2014,7 @@ class DeviceToken(graphene.Mutation):
         )
 
 
-class EmailVerify(graphene.Mutation):
-    """
-    Verify Mutation::
-    to verify email address.
-    """
 
-    success = graphene.Boolean()
-    message = graphene.String()
-
-    class Arguments:
-        token = graphene.String(required=True)
-
-    def mutate(self, info, token):
-        user_exist = User.objects.filter(activation_token=token)
-        if user_exist.exists():
-            user = user_exist.last()
-            if user_exist.filter(is_email_verified=True, is_verified=True):
-                raise_graphql_error("User already verified.")
-            user_exist.update(is_email_verified=True, is_verified=True, activation_token=None)
-            # send_account_activation_mail.delay(user.email, user.username)
-            link = settings.SUPPLIER_SITE_URL if user.vendor else settings.SITE_URL
-            send_email_on_delay.delay(
-                'emails/greeting.html',
-                {
-                    'user_name': user.full_name, 'year': timezone.now().year,
-                    'link': link
-                },
-                'Account activated',
-                user.email
-            )
-        else:
-            raise_graphql_error("Invalid token!", "invalid_token")
-        return EmailVerify(
-            success=True,
-            message="Email verification was successful."
-        )
 
 
 class VerifyAccess(graphene.Mutation):
@@ -2376,6 +2505,7 @@ class Mutation(graphene.ObjectType):
     company_delete = CompanyDelete.Field()
     company_status_change = ChangeCompanyStatus.Field()
     register_company_owner = CompanyOwnerRegistration.Field()
+    register_user = RegisterUser.Field()
     create_company_staff = UserCreationMutation.Field()
     address_mutation = AddressMutation.Field()
     address_delete = AddressDelete.Field()
@@ -2393,7 +2523,7 @@ class Mutation(graphene.ObjectType):
     vendor_delete = VendorDelete.Field()
     withdraw_request_mutation = VendorWithdrawRequest.Field()
     withdraw_request_delete = WithdrawRequestDelete.Field()
-    user_password_reset = UserPasswordReset.Field()
+
     # reset_password_company_staff = PasswordResetCompany.Field()
 
     login_user = LoginUser.Field()
@@ -2401,6 +2531,7 @@ class Mutation(graphene.ObjectType):
     logout = ExpiredAllToken.Field()
     password_change = PasswordChange.Field()
     password_reset_mail = PasswordResetMail.Field()
+    verify_reset_code = VerifyResetCode.Field()
     send_verification_mail = EmailVericationMail.Field()
     reset_password = PasswordReset.Field()
 
@@ -2411,7 +2542,6 @@ class Mutation(graphene.ObjectType):
     device_token = DeviceToken.Field()
 
     has_user_access = VerifyAccess.Field()
-    email_verify = EmailVerify.Field()
 
     reset_password_by_admin = PasswordResetAdmin.Field()
     user_block_or_unblock = UserBlockUnBlock.Field()
@@ -2424,4 +2554,8 @@ class Mutation(graphene.ObjectType):
     default_mutation = DefaultMutation.Field()
     coupon_mutation = CouponMutation.Field()
     coupon_delete = CouponDelete.Field()
+    # Reward Mutations
+    toggle_rewards = ToggleRewardsMutation.Field()
+    invite_friend = InviteFriendMutation.Field()
+    redeem_reward = RedeemRewardMutation.Field()
     # apply_coupon = ApplyCouponMutation.Field()

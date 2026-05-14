@@ -705,6 +705,27 @@ class ContactUsMutation(DjangoModelFormMutation):
         form = ContactUsForm(data=input, instance=ContactUs.objects.filter(id=input.get('id')).last())
         if form.is_valid():
             obj = form.save()
+            
+            # Send Email to Admin
+            from django.conf import settings
+            from apps.users.tasks import send_email_on_delay
+            
+            subject = f"New Priority Desk Inquiry: {obj.category or 'General'}"
+            context = {
+                'name': obj.name,
+                'email': obj.email,
+                'company': obj.company_name,
+                'phone': obj.contact,
+                'category': obj.category,
+                'message': obj.message,
+                'year': 2026
+            }
+            template = 'emails/admin_contact_notification.html' # We'll create this or use a generic one
+            
+            # Sending to admin email defined in settings
+            admin_email = getattr(settings, 'ADMIN_EMAIL', 'admin@lunsjavtale.no')
+            send_email_on_delay.delay(template, context, subject, admin_email)
+            
         else:
             error_data = {}
             for error in form.errors:
@@ -718,7 +739,7 @@ class ContactUsMutation(DjangoModelFormMutation):
                 }
             )
         return ContactUsMutation(
-            success=True, message="Successfully added", instance=obj
+            success=True, message="Successfully sent. We will get back to you soon.", instance=obj
         )
 
 
