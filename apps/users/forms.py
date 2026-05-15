@@ -171,7 +171,7 @@ class VendorUpdateForm(forms.ModelForm):
         model = Vendor
         fields = (
             "name", "email", 'contact', 'post_code', 'logo_url', 'file_id', 'formation_date', 'social_media_links',
-            'is_blocked',
+            'is_blocked', 'is_popular', 'is_featured', 'rating', 'discount_percentage',
             'commission_percentage',
         )
 

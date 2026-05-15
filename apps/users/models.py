@@ -163,6 +163,10 @@ class Vendor(BaseWithoutID, SoftDeletion):
         related_name='vendors_serving',
         help_text='Post codes/areas where this vendor provides service.',
     )
+    is_featured = models.BooleanField(default=False)
+    is_popular = models.BooleanField(default=False)
+    rating = models.DecimalField(max_digits=3, decimal_places=1, default=0.0)
+    discount_percentage = models.PositiveIntegerField(default=0)
     is_kitchen_active = models.BooleanField(default=True)
     is_blocked = models.BooleanField(default=False)
     note = models.TextField(blank=True, null=True)
@@ -245,6 +249,8 @@ class VendorDeliverySettings(BaseWithoutID):
     pickup_address = models.TextField(blank=True, null=True)
     pickup_instructions = models.TextField(blank=True, null=True)
     base_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    min_delivery_time = models.PositiveIntegerField(default=15)
+    max_delivery_time = models.PositiveIntegerField(default=45)
     free_delivery_over = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     same_fee_all_distances = models.BooleanField(default=True)
     delivery_days = models.JSONField(default=list, blank=True)
