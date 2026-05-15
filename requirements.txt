@@ -12,3 +12,4 @@ pyJWT==2.8.0
 python-decouple==3.8
 redis==5.0.8
 requests==2.31.0
+dj-database-url==2.1.0
