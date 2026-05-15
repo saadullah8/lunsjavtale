@@ -176,9 +176,10 @@ class ContactUs(BaseWithoutID):
     )
     number_of_employees = models.PositiveIntegerField(default=1)
     post_code = models.PositiveIntegerField(default=1)
-    message = models.CharField(
-        max_length=32, blank=True, null=True
+    category = models.CharField(
+        max_length=128, blank=True, null=True
     )
+    message = models.TextField(blank=True, null=True)
     agree_to_privacy_policy = models.BooleanField(default=False)
 
     class Meta:

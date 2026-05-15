@@ -189,6 +189,8 @@ class ContactUsType(DjangoObjectType):
         define django object type for WhoUAreAttachment model with filter-set
     """
     id = graphene.ID(required=True)
+    category = graphene.String()
+    message = graphene.String()
 
     class Meta:
         model = ContactUs

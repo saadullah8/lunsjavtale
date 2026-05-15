@@ -19,15 +19,13 @@ class UserForm(forms.ModelForm):
         fields = [
             'first_name',
             'last_name',
+            'secondary_email',
             'phone',
-            'gender',
-            'address',
-            'about',
-            'post_code',
-            'photo_url',
-            'file_id',
-            'date_of_birth',
-            'allergies',
+            'work_phone',
+            'company_name',
+            'job_title',
+            'industry_usage',
+            'notification_preferences',
         ]
 
 
@@ -101,6 +99,18 @@ class UserRegisterForm(forms.ModelForm):
         fields = ("email", "phone", 'role', 'password')
 
 
+class SignupForm(forms.ModelForm):
+    first_name = forms.CharField(required=False)
+    last_name = forms.CharField(required=False)
+    password = forms.CharField()
+    post_code = forms.IntegerField(required=False)
+    name = forms.CharField(required=False)  # For Vendor or Company name
+
+    class Meta:
+        model = User
+        fields = ("first_name", "last_name", "email", "phone", "password", "post_code", "role")
+
+
 class AdminRegistrationForm(forms.ModelForm):
     super_user = forms.BooleanField(required=False)
     password = forms.CharField(required=False)
@@ -147,6 +157,13 @@ class VendorForm(forms.ModelForm):
         fields = ("name", "email", 'contact', 'post_code')
 
 
+class VendorSignupForm(forms.ModelForm):
+
+    class Meta:
+        model = Vendor
+        fields = ("name", "email", "contact", "post_code")
+
+
 class VendorUpdateForm(forms.ModelForm):
     id = forms.CharField(required=True)
 
@@ -176,10 +193,15 @@ class CouponForm(forms.ModelForm):
 
 class AddressForm(forms.ModelForm):
     company = forms.ModelChoiceField(queryset=Company.objects.all(), required=False)
+    user = forms.ModelChoiceField(queryset=User.objects.all(), required=False)
 
     class Meta:
         model = Address
-        exclude = ("is_deleted", "deleted_on")
+        fields = [
+            'company', 'user', 'address_type', 'location_name', 'address', 
+            'unit_floor', 'city', 'state', 'post_code', 'phone', 
+            'receiving_name', 'instruction', 'default'
+        ]
 
 
 class CompanyBillingAddressForm(forms.ModelForm):

@@ -12,6 +12,11 @@ class PaymentTypeChoices(models.TextChoices):
     CASH = 'cash'
 
 
+class CustomerTypeChoices(models.TextChoices):
+    CORPORATE = 'Corporate'
+    PRIVATE = 'Private'
+
+
 class InvoiceStatusChoices(models.TextChoices):
     """
         define selection fields for status choice
@@ -26,6 +31,7 @@ class InvoiceStatusChoices(models.TextChoices):
     PROCESSING = 'Processing'
     READY_TO_DELIVER = 'Ready-to-deliver'
     DELIVERED = 'Delivered'
+    DRAFT = 'Draft'
 
 
 class DecisionChoices(models.TextChoices):

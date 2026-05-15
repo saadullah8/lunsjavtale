@@ -117,6 +117,11 @@ class ContactUsForm(forms.ModelForm):
         model = ContactUs
         fields = '__all__'
 
+    def __init__(self, *args, **kwargs):
+        super(ContactUsForm, self).__init__(*args, **kwargs)
+        self.fields['number_of_employees'].required = False
+        self.fields['post_code'].required = False
+
 
 class WhoUAreForm(forms.ModelForm):
     """

@@ -1,4 +1,5 @@
 import graphene
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
@@ -419,21 +420,54 @@ class OrderStatusUpdate(graphene.Mutation):
 
     @is_vendor_user
     def mutate(self, info, id, status="", note=""):
-        """
-        Allow only the owning vendor to update order status.
-        Admins and other roles are read-only for status.
-        """
+        from .models import ClientOrder
+        from apps.users.models import RewardTransaction
         user = info.context.user
-        qs = Order.objects.filter(id=id, is_deleted=False, order_carts__item__vendor=user.vendor).distinct()
-        obj = qs.last()
+        
+        # Try finding in Corporate Orders
+        obj = Order.objects.filter(id=id, is_deleted=False, order_carts__item__vendor=user.vendor).distinct().last()
+        is_client_order = False
+        
+        if not obj:
+            # Try finding in Client Orders
+            obj = ClientOrder.objects.filter(id=id, vendor=user.vendor).last()
+            is_client_order = True
+            
         if not obj:
             raise_graphql_error("Order not found.", field_name="id")
+            
         if obj.status in [InvoiceStatusChoices.CANCELLED, InvoiceStatusChoices.DELIVERED]:
             raise_graphql_error(f"Order status already in '{obj.status}'")
-        OrderStatus.objects.create(order=obj, status=status, note=note)
+            
+        # Update Status
+        if is_client_order:
+            obj.status = status
+            obj.save()
+        else:
+            OrderStatus.objects.create(order=obj, status=status, note=note)
+            
         dispatch_task(notify_company_order_update, obj.id)
-        if obj.status == InvoiceStatusChoices.DELIVERED:
-            dispatch_task(vendor_sold_amount_calculation, obj.id)
+        
+        # Award Reward Points on Delivery
+        if status == InvoiceStatusChoices.DELIVERED:
+            if not is_client_order:
+                dispatch_task(vendor_sold_amount_calculation, obj.id)
+            
+            # Logic for Rewards
+            order_user = obj.created_by if not is_client_order else obj.user
+            if order_user and order_user.rewards_enabled:
+                points = int(obj.total_amount if is_client_order else obj.final_price)
+                if points > 0:
+                    order_user.reward_points += points
+                    order_user.save()
+                    RewardTransaction.objects.create(
+                        user=order_user,
+                        transaction_type=RewardTransaction.EARN,
+                        source=RewardTransaction.SOURCE_ORDER,
+                        points=points,
+                        description=f"Points earned from order #{obj.id}"
+                    )
+
         return OrderStatusUpdate(
             success=True,
             message="Successfully updated",
@@ -653,7 +687,20 @@ class AddProductRating(DjangoFormMutation):
             form.cleaned_data['added_by'] = user
             form.cleaned_data['order'] = cart_item.cart.order
             obj = form.save()
-            # notify_admin()
+            
+            # Award Reward Points for Review
+            from apps.users.models import RewardTransaction
+            if user.rewards_enabled:
+                points = 1000
+                user.reward_points += points
+                user.save()
+                RewardTransaction.objects.create(
+                    user=user,
+                    transaction_type=RewardTransaction.EARN,
+                    source=RewardTransaction.SOURCE_REVIEW,
+                    points=points,
+                    description=f"Points earned for reviewing order #{obj.order.id if obj.order else 'N/A'}"
+                )
         else:
             error_data = {}
             for error in form.errors:
@@ -837,6 +884,161 @@ class ApplyCoupon(graphene.Mutation):
         )
 
 
+class ClientOrderItemInput(graphene.InputObjectType):
+    product = graphene.ID(required=True)
+    quantity = graphene.Int(required=True)
+
+class PlaceClientOrder(graphene.Mutation):
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    class Arguments:
+        vendor_id = graphene.ID(required=True)
+        customer_type = graphene.String(required=True) # 'Corporate' or 'Private'
+        
+        # Corporate specific (Optional)
+        corporate_name = graphene.String()
+        organization_number = graphene.String()
+        invoice_reference = graphene.String()
+        
+        # Contact & Address (Optional - will auto-fill from Profile/Default Addresses)
+        email = graphene.String()
+        phone = graphene.String()
+        delivery_address = graphene.String()
+        invoice_address = graphene.String()
+        invoice_suite = graphene.String()
+        invoice_postal_code = graphene.String()
+        invoice_city = graphene.String()
+        
+        # Event Details
+        event_name = graphene.String()
+        event_date = graphene.Date()
+        event_time = graphene.Time()
+        person_count = graphene.Int()
+        
+        # Pricing & Totals
+        tip_amount = graphene.Decimal()
+        tax_percent = graphene.Decimal()
+        
+        # Additional Info
+        order_notes = graphene.String()
+        items = graphene.List(ClientOrderItemInput, required=True)
+
+    @is_authenticated
+    def mutate(self, info, vendor_id, items, **kwargs):
+        from apps.users.models import Vendor, Address
+        from apps.scm.models import Product
+        from .models import ClientOrder, ClientOrderItem
+        
+        user = info.context.user
+        vendor = Vendor.objects.get(id=vendor_id)
+        
+        # --- AUTO-FILL LOGIC ---
+        customer_type = kwargs.get('customer_type')
+        
+        # 1. Contact Info
+        email = kwargs.get('email') or user.email
+        phone = kwargs.get('phone') or user.phone
+        
+        # 2. Corporate Info
+        corp_name = kwargs.get('corporate_name')
+        if not corp_name and customer_type == 'Corporate':
+            corp_name = user.company_name or (user.company.name if user.company else None)
+            
+        # 3. Addresses
+        del_addr = kwargs.get('delivery_address')
+        if not del_addr:
+            default_delivery = user.addresses.filter(address_type='delivery', default=True).last()
+            if default_delivery:
+                del_addr = f"{default_delivery.location_name + ': ' if default_delivery.location_name else ''}{default_delivery.address}"
+                if default_delivery.unit_floor: del_addr += f", {default_delivery.unit_floor}"
+                if default_delivery.city: del_addr += f", {default_delivery.city}"
+        
+        inv_addr = kwargs.get('invoice_address')
+        inv_suite = kwargs.get('invoice_suite')
+        inv_post = kwargs.get('invoice_postal_code')
+        inv_city = kwargs.get('invoice_city')
+        
+        if not inv_addr:
+            default_invoice = user.addresses.filter(address_type='invoice', default=True).last()
+            if default_invoice:
+                inv_addr = default_invoice.address
+                inv_suite = default_invoice.unit_floor
+                inv_post = default_invoice.post_code
+                inv_city = default_invoice.city
+        
+        # --- CALCULATE DUE DATE (5 Days after Event) ---
+        from datetime import timedelta, datetime
+        event_date = kwargs.get('event_date')
+        due_date = None
+        if event_date:
+            if isinstance(event_date, str):
+                event_date_obj = datetime.strptime(event_date, '%Y-%m-%d').date()
+            else:
+                event_date_obj = event_date
+            due_date = event_date_obj + timedelta(days=5)
+
+        # --- CREATE ORDER ---
+        order = ClientOrder.objects.create(
+            user=user,
+            vendor=vendor,
+            customer_type=customer_type,
+            company_name=corp_name,
+            organization_number=kwargs.get('organization_number'),
+            invoice_reference=kwargs.get('invoice_reference'),
+            email=email,
+            phone=phone,
+            delivery_address_str=del_addr or "N/A",
+            invoice_address_str=inv_addr or "N/A",
+            invoice_suite=inv_suite,
+            invoice_postal_code=inv_post,
+            invoice_city=inv_city,
+            event_name=kwargs.get('event_name'),
+            event_date=kwargs.get('event_date'),
+            event_time=kwargs.get('event_time'),
+            due_date=due_date,
+            person_count=kwargs.get('person_count', 1),
+            order_notes=kwargs.get('order_notes'),
+        )
+        
+        total = 0
+        for item in items:
+            prod = Product.objects.get(id=item.product)
+            quantity = item.quantity
+            unit_price = prod.actual_price or 0
+            item_total = unit_price * quantity
+            total += item_total
+            
+            ClientOrderItem.objects.create(
+                order=order,
+                product=prod,
+                product_name=prod.title or prod.name or "Product",
+                quantity=quantity,
+                unit_price=unit_price,
+                total_price=item_total
+            )
+            
+        # Financial Calculations
+        order.total_amount = total
+        
+        # Calculate Tax
+        from decimal import Decimal
+        tax_pct = Decimal(str(kwargs.get('tax_percent') or getattr(settings, 'TAX_PERCENTAGE', 15)))
+        order.tax_amount = (total * tax_pct) / Decimal('100')
+        
+        # Delivery Fee
+        order.delivery_fee = vendor.delivery_settings.base_delivery_fee if hasattr(vendor, 'delivery_settings') else 0
+        
+        # Tip
+        order.tip_amount = kwargs.get('tip_amount') or 0
+        
+        # Grand Total
+        order.grand_total = order.total_amount + order.tax_amount + order.delivery_fee + order.tip_amount
+        order.save()
+        
+        return PlaceClientOrder(success=True, message="Order placed successfully")
+
+
 class Mutation(graphene.ObjectType):
     """
         define all the mutations by identifier name for query
@@ -858,6 +1060,7 @@ class Mutation(graphene.ObjectType):
     sales_history_delete = SalesHistoryDelete.Field()
 
     place_order = OrderCreation.Field()
+    place_client_order = PlaceClientOrder.Field()
     order_status_update = OrderStatusUpdate.Field()
     order_history_delete = OrderHistoryDelete.Field()
     apply_coupon = ApplyCoupon.Field()

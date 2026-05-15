@@ -248,11 +248,50 @@ class VendorFilters(BaseFilterOrderBy):
     has_product = django_filters.BooleanFilter(
         method="has_product_filter",
     )
+    post_code = django_filters.CharFilter(
+        method='post_code_filter'
+    )
+    area_name = django_filters.CharFilter(
+        method='area_name_filter'
+    )
 
     def title_filter(self, qs, name, value):
         if value:
             qs = qs.filter(Q(email__icontains=value) | Q(name__icontains=value))
         return qs
+
+    def post_code_filter(self, qs, name, value):
+        if value:
+            return qs.filter(Q(post_code=value) | Q(service_areas__post_code=value)).distinct()
+        return qs
+
+    def area_name_filter(self, qs, name, value):
+        if value:
+            # Check service areas, vendor's own post_code, OR business address string
+            return qs.filter(
+                Q(service_areas__name__icontains=value) | 
+                Q(post_code__in=ValidArea.objects.filter(name__icontains=value).values_list('post_code', flat=True)) |
+                Q(business_settings__business_address__icontains=value)
+            ).distinct()
+        return qs
+
+    def filter_queryset(self, queryset):
+        """
+        Override to implement OR logic between post_code and area_name
+        """
+        post_code = self.form.cleaned_data.get('post_code')
+        area_name = self.form.cleaned_data.get('area_name')
+
+        if post_code and area_name:
+            # Combined OR query
+            return queryset.filter(
+                Q(post_code=post_code) | 
+                Q(service_areas__post_code=post_code) |
+                Q(service_areas__name__icontains=area_name) |
+                Q(post_code__in=ValidArea.objects.filter(name__icontains=area_name).values_list('post_code', flat=True))
+            ).distinct()
+        
+        return super().filter_queryset(queryset)
 
     def has_product_filter(self, qs, name, value):
         from apps.scm.models import Product
@@ -323,7 +362,7 @@ class AddressFilters(BaseFilterOrderBy):
     class Meta:
         model = Address
         fields = [
-            'id',
+            'id', 'user', 'address_type', 'default'
         ]
 
 

@@ -137,7 +137,6 @@ class Query(graphene.ObjectType):
             obj.save()
         return obj
 
-    @is_authenticated
     def resolve_vendors(self, info, **kwargs):
         return Vendor.objects.all()
 

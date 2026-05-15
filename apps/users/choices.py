@@ -42,6 +42,7 @@ class RoleTypeChoices(models.TextChoices):
     SEO_MANAGER = "seo-manager"
     SYSTEM_MANAGER = "system-manager"
     USER = "user"
+    CLIENT = "client"
     VENDOR = "vendor"
     COMPANY_OWNER = "company-owner"
     COMPANY_MANAGER = "company-manager"

@@ -9,6 +9,7 @@ from apps.sales.choices import (
     OrderPaymentTypeChoices,
     PaymentStatusChoices,
     PaymentTypeChoices,
+    CustomerTypeChoices,
 )
 
 
@@ -177,6 +178,7 @@ class Order(BaseWithoutID, SoftDeletion):
         max_length=16, choices=OrderPaymentTypeChoices.choices, default=OrderPaymentTypeChoices.PAY_BY_INVOICE
     )
     delivery_date = models.DateField()
+    due_date = models.DateField(blank=True, null=True)
     company_allowance = models.PositiveIntegerField(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         default=0
@@ -382,3 +384,62 @@ class ProductRating(BaseWithoutID):
     class Meta:
         db_table = f"{settings.DB_PREFIX}_product_ratings"  # define table name for database
         ordering = ['-id']  # define default order as id in descending
+
+
+class ClientOrder(BaseWithoutID, SoftDeletion):
+    customer_type = models.CharField(max_length=32, choices=CustomerTypeChoices.choices, default=CustomerTypeChoices.PRIVATE)
+    
+    # Contact Info
+    company_name = models.CharField(max_length=256, blank=True, null=True)
+    organization_number = models.CharField(max_length=64, blank=True, null=True)
+    invoice_reference = models.CharField(max_length=128, blank=True, null=True)
+    email = models.EmailField()
+    phone = models.CharField(max_length=32)
+    
+    # Delivery Address
+    delivery_address_str = models.TextField()
+    
+    # Invoice Address
+    invoice_address_str = models.TextField()
+    invoice_suite = models.CharField(max_length=128, blank=True, null=True)
+    invoice_postal_code = models.CharField(max_length=16, blank=True, null=True)
+    invoice_city = models.CharField(max_length=128, blank=True, null=True)
+    
+    # Event Details
+    event_name = models.CharField(max_length=256, blank=True, null=True)
+    event_date = models.DateField(blank=True, null=True)
+    event_time = models.TimeField(blank=True, null=True)
+    due_date = models.DateField(blank=True, null=True)
+    person_count = models.PositiveIntegerField(default=1)
+    
+    # Additional Info
+    order_notes = models.TextField(blank=True, null=True)
+    
+    # Foreign Keys
+    user = models.ForeignKey('users.User', on_delete=models.SET_NULL, related_name='client_orders', null=True, blank=True)
+    vendor = models.ForeignKey('users.Vendor', on_delete=models.DO_NOTHING, related_name='client_orders')
+    
+    # Price details
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tip_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    grand_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    status = models.CharField(max_length=32, choices=InvoiceStatusChoices.choices, default=InvoiceStatusChoices.PLACED)
+
+    class Meta:
+        db_table = f"{settings.DB_PREFIX}_client_orders"
+        ordering = ['-created_on']
+
+
+class ClientOrderItem(BaseWithoutID):
+    order = models.ForeignKey(ClientOrder, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey('scm.Product', on_delete=models.SET_NULL, null=True)
+    product_name = models.CharField(max_length=256)
+    quantity = models.PositiveIntegerField(default=1)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    class Meta:
+        db_table = f"{settings.DB_PREFIX}_client_order_items"

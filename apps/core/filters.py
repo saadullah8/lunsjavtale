@@ -192,16 +192,19 @@ class ContactUsFilters(BaseFilterOrderBy):
         ContactUs filters will be defined here
     """
     company_name = django_filters.CharFilter(
-        field_name="name", lookup_expr="icontains"
+        field_name="company_name", lookup_expr="icontains"
     )
     name = django_filters.CharFilter(
         field_name="name", lookup_expr="icontains"
     )
     email = django_filters.CharFilter(
-        field_name="name", lookup_expr="icontains"
+        field_name="email", lookup_expr="icontains"
     )
     contact = django_filters.CharFilter(
-        field_name="name", lookup_expr="icontains"
+        field_name="contact", lookup_expr="icontains"
+    )
+    category = django_filters.CharFilter(
+        field_name="category", lookup_expr="icontains"
     )
 
     class Meta:

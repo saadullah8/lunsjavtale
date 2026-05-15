@@ -39,6 +39,7 @@ from .models import (
     VendorDeliverySettings,
     VendorSettings,
     WithdrawRequest,
+    RewardTransaction,
 )
 
 User = get_user_model()  # variable taken for User model
@@ -66,6 +67,8 @@ class UserType(DjangoObjectType):
     is_admin = graphene.Boolean()
     due_amount = graphene.Decimal()
     added_by = GenericScalar()
+    reward_points = graphene.Int()
+    rewards_enabled = graphene.Boolean()
 
     class Meta:
         model = User
@@ -92,6 +95,13 @@ class UserType(DjangoObjectType):
             'id': added_by.user.id, 'email': added_by.user.email, 'fullName': added_by.user.full_name,
             'username': added_by.user.username
         } if added_by and added_by.user else None
+
+
+class RewardTransactionType(DjangoObjectType):
+    class Meta:
+        model = RewardTransaction
+        interfaces = (graphene.relay.Node,)
+        connection_class = CountConnection
 
 
 class LogType(DjangoObjectType):
@@ -150,6 +160,7 @@ class VendorType(DjangoObjectType):
     effective_commission_percentage = graphene.Int()
     delivery_settings = graphene.Field(lambda: VendorDeliverySettingsType)
     business_settings = graphene.Field(lambda: VendorSettingsType)
+    company_name = graphene.String()
 
     class Meta:
         model = Vendor
@@ -183,6 +194,9 @@ class VendorType(DjangoObjectType):
     def resolve_business_settings(self, info, **kwargs):
         settings, _ = VendorSettings.objects.get_or_create(vendor=self)
         return settings
+
+    def resolve_company_name(self, info):
+        return self.name
 
 
 class VendorDeliverySettingsType(DjangoObjectType):

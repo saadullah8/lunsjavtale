@@ -32,6 +32,8 @@ from .models import (
     ProductRating,
     SellCart,
     UserCart,
+    ClientOrder,
+    ClientOrderItem,
 )
 from .choices import InvoiceStatusChoices
 
@@ -377,3 +379,54 @@ class AddedCartsListType(graphene.ObjectType):
     date = graphene.Date()
     total_price = graphene.Decimal()
     carts = DjangoFilterConnectionField(SellCartType)
+
+class ClientOrderItemType(DjangoObjectType):
+    id = graphene.ID(required=True)
+
+    class Meta:
+        model = ClientOrderItem
+        interfaces = (graphene.relay.Node,)
+        convert_choices_to_enum = False
+        filter_fields = ['id']
+
+class ClientOrderType(DjangoObjectType):
+    id = graphene.ID(required=True)
+    items = graphene.List(ClientOrderItemType)
+    due_date = graphene.Date()
+    
+    class Meta:
+        model = ClientOrder
+        interfaces = (graphene.relay.Node,)
+        convert_choices_to_enum = False
+        connection_class = CountConnection
+        filter_fields = ['id', 'status']
+
+    def resolve_items(self, info, **kwargs):
+        return self.items.all()
+
+
+class InvoiceSummaryType(graphene.ObjectType):
+    total_invoices = graphene.Int()
+    paid_invoices = graphene.Int()
+    unpaid_invoices = graphene.Int()
+    overdue_invoices = graphene.Int()
+    
+    total_spent = graphene.Decimal()
+    this_month_spent = graphene.Decimal()
+    pending_amount = graphene.Decimal()
+    overdue_amount = graphene.Decimal()
+
+
+class OrderQuickSummaryType(graphene.ObjectType):
+    total_orders = graphene.Int()
+    completed = graphene.Int()
+    scheduled = graphene.Int()
+    drafts = graphene.Int()
+
+
+class ClientDashboardType(graphene.ObjectType):
+    total_orders = graphene.Int()
+    pending_invoices = graphene.Int()
+    reward_points = graphene.Int()
+    recent_orders = graphene.List(ClientOrderType)
+    recent_invoices = graphene.List(ClientOrderType)

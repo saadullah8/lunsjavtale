@@ -14,7 +14,7 @@ from apps.scm.object_types import ProductType
 from apps.users.choices import RoleTypeChoices
 from backend.permissions import is_authenticated, is_company_user
 
-from .models import Order, OrderPayment, PaymentMethod, ProductRating, SellCart
+from .models import Order, OrderPayment, PaymentMethod, ProductRating, SellCart, ClientOrder
 from .choices import InvoiceStatusChoices
 from .object_types import (
     AddedCartsListType,
@@ -23,6 +23,10 @@ from .object_types import (
     PaymentMethodType,
     ProductRatingType,
     SellCartType,
+    ClientOrderType,
+    InvoiceSummaryType,
+    OrderQuickSummaryType,
+    ClientDashboardType,
 )
 from .tasks import get_payment_info
 
@@ -142,6 +146,11 @@ class Query(graphene.ObjectType):
     order_payment = graphene.Field(OrderPaymentType, id=graphene.ID())
     product_ratings = DjangoFilterConnectionField(ProductRatingType)
     product_rating = graphene.Field(ProductRatingType, id=graphene.ID())
+    client_orders = DjangoFilterConnectionField(ClientOrderType, tab=graphene.String())
+    client_order = graphene.Field(ClientOrderType, id=graphene.ID())
+    invoice_summary = graphene.Field(InvoiceSummaryType)
+    order_quick_summary = graphene.Field(OrderQuickSummaryType)
+    client_dashboard = graphene.Field(ClientDashboardType)
     vendor_review_summary = GenericScalar(
         date_range=graphene.String(),
         start_date=graphene.String(),
@@ -261,6 +270,48 @@ class Query(graphene.ObjectType):
                     id__in=user.cart_items.filter(cart__order__isnull=False).values_list('cart__order_id', flat=True)
                 )
         return qs.last()
+
+    @is_authenticated
+    def resolve_client_orders(self, info, tab=None, **kwargs):
+        user = info.context.user
+        qs = ClientOrder.objects.filter(is_deleted=False)
+        
+        # Base Filtering by user role
+        if not user.is_admin:
+            if hasattr(user, 'role') and user.role == RoleTypeChoices.VENDOR:
+                if user.vendor:
+                    qs = qs.filter(vendor=user.vendor)
+                else:
+                    return ClientOrder.objects.none()
+            else:
+                qs = qs.filter(user=user)
+        
+        # Tab-based filtering
+        if tab:
+            today = timezone.now().date()
+            if tab == 'active':
+                qs = qs.exclude(status__in=[InvoiceStatusChoices.DELIVERED, InvoiceStatusChoices.CANCELLED, InvoiceStatusChoices.DRAFT])
+            elif tab == 'recent':
+                last_30_days = today - datetime.timedelta(days=30)
+                qs = qs.filter(created_on__date__gte=last_30_days)
+            elif tab == 'drafts':
+                qs = qs.filter(status=InvoiceStatusChoices.DRAFT)
+            elif tab == 'scheduled':
+                qs = qs.filter(status=InvoiceStatusChoices.CONFIRMED, event_date__gt=today)
+                
+        return qs
+
+    @is_authenticated
+    def resolve_client_order(self, info, id, **kwargs):
+        user = info.context.user
+        qs = ClientOrder.objects.filter(id=id, is_deleted=False)
+        if user.is_admin:
+            return qs.last()
+        elif hasattr(user, 'role') and user.role == RoleTypeChoices.VENDOR:
+            if user.vendor:
+                return qs.filter(vendor=user.vendor).last()
+        return None
+        return None
 
     @is_authenticated
     def resolve_order_payments(self, info, **kwargs):
@@ -431,3 +482,83 @@ class Query(graphene.ObjectType):
     def resolve_cart(self, info, id, **kwargs):
         qs = SellCart.objects.filter(id=id)
         return qs.last()
+    @is_authenticated
+    def resolve_invoice_summary(self, info, **kwargs):
+        user = info.context.user
+        from .models import ClientOrder
+        from django.utils import timezone
+        
+        # Base Querysets
+        client_qs = ClientOrder.objects.filter(user=user)
+        
+        today = timezone.now().date()
+        this_month = today.month
+        this_year = today.year
+        
+        # Stats
+        total_count = client_qs.count()
+        paid_count = client_qs.filter(status=InvoiceStatusChoices.PAYMENT_COMPLETED).count()
+        overdue_count = client_qs.exclude(status=InvoiceStatusChoices.PAYMENT_COMPLETED).filter(due_date__lt=today).count()
+        unpaid_count = total_count - paid_count
+        
+        # Amounts
+        total_spent = client_qs.aggregate(s=Sum('grand_total'))['s'] or Decimal('0')
+        this_month_spent = client_qs.filter(created_on__month=this_month, created_on__year=this_year).aggregate(s=Sum('grand_total'))['s'] or Decimal('0')
+        pending_amount = client_qs.exclude(status=InvoiceStatusChoices.PAYMENT_COMPLETED).aggregate(s=Sum('grand_total'))['s'] or Decimal('0')
+        overdue_amount = client_qs.exclude(status=InvoiceStatusChoices.PAYMENT_COMPLETED).filter(due_date__lt=today).aggregate(s=Sum('grand_total'))['s'] or Decimal('0')
+        
+        return InvoiceSummaryType(
+            total_invoices=total_count,
+            paid_invoices=paid_count,
+            unpaid_invoices=unpaid_count,
+            overdue_invoices=overdue_count,
+            total_spent=total_spent,
+            this_month_spent=this_month_spent,
+            pending_amount=pending_amount,
+            overdue_amount=overdue_amount
+        )
+
+    @is_authenticated
+    def resolve_client_dashboard(self, info, **kwargs):
+        user = info.context.user
+        from .models import ClientOrder
+        from .choices import InvoiceStatusChoices
+        
+        qs = ClientOrder.objects.filter(user=user, is_deleted=False)
+        
+        total_orders = qs.count()
+        pending_invoices = qs.exclude(status=InvoiceStatusChoices.PAYMENT_COMPLETED).count()
+        reward_points = getattr(user, 'reward_points', 0)
+        
+        recent_orders = qs.order_by('-created_on')[:5]
+        recent_invoices = qs.exclude(status=InvoiceStatusChoices.PAYMENT_COMPLETED).order_by('-created_on')[:5]
+        
+        return ClientDashboardType(
+            total_orders=total_orders,
+            pending_invoices=pending_invoices,
+            reward_points=reward_points,
+            recent_orders=recent_orders,
+            recent_invoices=recent_invoices
+        )
+
+    @is_authenticated
+    def resolve_order_quick_summary(self, info, **kwargs):
+        user = info.context.user
+        from .models import ClientOrder
+        from django.utils import timezone
+        
+        qs = ClientOrder.objects.filter(user=user, is_deleted=False)
+        today = timezone.now().date()
+        
+        total_orders = qs.count()
+        completed = qs.filter(status=InvoiceStatusChoices.DELIVERED).count()
+        scheduled = qs.filter(status=InvoiceStatusChoices.CONFIRMED, event_date__gt=today).count()
+        drafts = qs.filter(status=InvoiceStatusChoices.DRAFT).count()
+        
+        from .object_types import OrderQuickSummaryType
+        return OrderQuickSummaryType(
+            total_orders=total_orders,
+            completed=completed,
+            scheduled=scheduled,
+            drafts=drafts
+        )

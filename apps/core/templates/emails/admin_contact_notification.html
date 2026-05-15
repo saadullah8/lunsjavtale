@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { width: 80%; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .header { background-color: #f4f4f4; padding: 10px; text-align: center; border-bottom: 1px solid #ddd; }
+        .content { padding: 20px; }
+        .field { font-weight: bold; margin-bottom: 5px; }
+        .value { margin-bottom: 15px; }
+        .footer { font-size: 12px; color: #777; margin-top: 20px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>New Priority Desk Inquiry</h2>
+        </div>
+        <div class="content">
+            <div class="field">Name:</div>
+            <div class="value">{{ name }}</div>
+            
+            <div class="field">Email:</div>
+            <div class="value">{{ email }}</div>
+            
+            <div class="field">Company:</div>
+            <div class="value">{{ company }}</div>
+            
+            <div class="field">Phone:</div>
+            <div class="value">{{ phone }}</div>
+            
+            <div class="field">Category:</div>
+            <div class="value">{{ category }}</div>
+            
+            <div class="field">Message:</div>
+            <div class="value" style="background: #f9f9f9; padding: 10px; border-left: 4px solid #ddd;">
+                {{ message|linebreaks }}
+            </div>
+        </div>
+        <div class="footer">
+            &copy; {{ year }} Lunsjavtale. All rights reserved.
+        </div>
+    </div>
+</body>
+</html>

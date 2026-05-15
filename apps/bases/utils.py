@@ -72,6 +72,13 @@ def create_token() -> str:
     return uuid.uuid4()
 
 
+def generate_pin(length=4) -> str:
+    """
+    Generate a random numeric PIN.
+    """
+    return "".join(random.choices(string.digits, k=length))
+
+
 def create_password(size=8, chars=string.ascii_letters + string.digits):
     """
     """
