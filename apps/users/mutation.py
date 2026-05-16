@@ -336,6 +336,7 @@ class RegisterUser(graphene.Mutation):
             'first_name': input.get('first_name'),
             'last_name': input.get('last_name'),
             'post_code': input.get('post_code'),
+            'company_name': input.get('company_name'),
         }
         
         profile_form = None
@@ -389,6 +390,11 @@ class VendorUpdateMutation(DjangoModelFormMutation):
             obj = Vendor.objects.get(id=input['id'])
         else:
             obj = user.vendor
+            # Protect sensitive fields from non-admin updates
+            input.pop('is_popular', None)
+            input.pop('is_featured', None)
+            input.pop('is_blocked', None)
+            input.pop('commission_percentage', None)
         form = VendorUpdateForm(data=input, instance=obj)
         error_data = {}
         if form.is_valid():
@@ -496,6 +502,8 @@ def apply_delivery_settings_input(settings, input_data):
         "same_fee_all_distances",
         "max_deliveries_per_day",
         "max_orders_per_time_slot",
+        "min_delivery_time",
+        "max_delivery_time",
     ]
     for field in nullable_fields:
         if field in input_data:
@@ -666,6 +674,8 @@ class VendorDeliverySettingsInput(graphene.InputObjectType):
     delivery_time_slots = graphene.List(DeliveryTimeSlotInput)
     max_deliveries_per_day = graphene.Int()
     max_orders_per_time_slot = graphene.Int()
+    min_delivery_time = graphene.Int()
+    max_delivery_time = graphene.Int()
     valid_area_ids = graphene.List(graphene.ID)
 
 
@@ -1198,7 +1208,7 @@ class AddressMutation(DjangoModelFormMutation):
         elif user.role in [RoleTypeChoices.COMPANY_OWNER, RoleTypeChoices.COMPANY_MANAGER]:
             if user.company:
                 input['company'] = user.company.id
-        elif user.role == RoleTypeChoices.CLIENT:
+        elif user.role == RoleTypeChoices.USER:
             # For clients, we link the address to the user directly
             input['user'] = user.id
         else:
@@ -1208,7 +1218,7 @@ class AddressMutation(DjangoModelFormMutation):
             if user.is_admin:
                 form = AddressForm(data=input, instance=Address.objects.get(id=input.get('id')))
             else:
-                if user.role == RoleTypeChoices.CLIENT:
+                if user.role == RoleTypeChoices.USER:
                     form = AddressForm(data=input, instance=Address.objects.get(id=input.get('id'), user=user))
                 else:
                     form = AddressForm(
@@ -1322,6 +1332,8 @@ class UserProfileInput(graphene.InputObjectType):
     company_name = graphene.String()
     job_title = graphene.String()
     industry_usage = graphene.String()
+    gender = graphene.String()
+    post_code = graphene.Int()
     notification_preferences = GenericScalar()
     allergies = graphene.List(graphene.ID)
 

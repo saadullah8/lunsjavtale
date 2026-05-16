@@ -123,6 +123,10 @@ class Product(BaseWithoutID, BasePriceModel, SoftDeletion):
     visitor_count = models.PositiveIntegerField(default=0, null=True)  # store product visits
     is_adjustable_for_single_staff = models.BooleanField(default=False)
     is_featured = models.BooleanField(default=False)
+    is_popular = models.BooleanField(default=False)
+    average_rating = models.DecimalField(max_digits=3, decimal_places=1, default=0.0)
+    orders_count = models.PositiveIntegerField(default=0)
+    badge = models.CharField(max_length=64, blank=True, null=True)
     order = models.PositiveSmallIntegerField(default=1)
     status = models.CharField(max_length=8, choices=ProductStatusChoices.choices, default=ProductStatusChoices.APPROVED)
     note = models.TextField(blank=True, null=True)

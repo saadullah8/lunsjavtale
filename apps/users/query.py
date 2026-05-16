@@ -138,9 +138,8 @@ class Query(graphene.ObjectType):
         return obj
 
     def resolve_vendors(self, info, **kwargs):
-        return Vendor.objects.all()
+        return Vendor.objects.order_by('-rating', '-sold_amount')
 
-    @is_authenticated
     def resolve_vendor(self, info, id, **kwargs):
         obj = Vendor.objects.filter(id=id).last()
         return obj

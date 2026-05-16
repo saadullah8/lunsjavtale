@@ -115,6 +115,12 @@ class ProductFilters(BaseFilterOrderBy):
     pricing_type = django_filters.CharFilter(
         field_name='pricing_type', lookup_expr='exact'
     )
+    is_popular = django_filters.BooleanFilter(
+        field_name='is_popular', lookup_expr='exact'
+    )
+    min_rating = django_filters.NumberFilter(
+        field_name='average_rating', lookup_expr='gte'
+    )
 
     def category_filter(self, qs, name, value):
         if value == '0':
@@ -149,6 +155,9 @@ class ProductFilters(BaseFilterOrderBy):
             'title',
             'availability',
             'is_featured',
+            'is_popular',
+            'average_rating',
+            'orders_count',
             'is_deleted',
             'product_type',
             'menu_status',

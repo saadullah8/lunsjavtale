@@ -5,6 +5,7 @@ from django.utils import timezone
 from apps.bases.constant import HistoryActions
 from apps.bases.utils import email_checker, raise_graphql_error
 
+from .choices import RoleTypeChoices
 from .models import TrackUserLogin, UnitOfHistory, UserSocialAccount
 
 User = get_user_model()

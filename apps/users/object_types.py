@@ -161,6 +161,7 @@ class VendorType(DjangoObjectType):
     delivery_settings = graphene.Field(lambda: VendorDeliverySettingsType)
     business_settings = graphene.Field(lambda: VendorSettingsType)
     company_name = graphene.String()
+    menu_categories = graphene.List('apps.scm.object_types.CategoryType', category_id=graphene.ID())
 
     class Meta:
         model = Vendor
@@ -197,6 +198,24 @@ class VendorType(DjangoObjectType):
 
     def resolve_company_name(self, info):
         return self.name
+
+    def resolve_menu_categories(self, info, category_id=None):
+        from apps.scm.models import Category
+        category_ids = self.products.filter(is_deleted=False).values_list('category_id', flat=True).distinct()
+        qs = Category.objects.filter(id__in=category_ids, is_active=True)
+        if category_id:
+            # Manual decode if needed
+            pk = category_id
+            if not str(category_id).isdigit():
+                try:
+                    import base64
+                    decoded = base64.b64decode(category_id).decode()
+                    if ':' in decoded:
+                        pk = decoded.split(':')[-1]
+                except Exception:
+                    pass
+            qs = qs.filter(id=pk)
+        return qs.order_by('order')
 
 
 class VendorDeliverySettingsType(DjangoObjectType):

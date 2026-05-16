@@ -74,7 +74,7 @@ class Query(CategoryQuery, graphene.ObjectType):
     pricing_type_choices = graphene.JSONString()
 
     def resolve_products(self, info, **kwargs):
-        return get_vendor_products(info)
+        return get_vendor_products(info).order_by('-average_rating', '-orders_count')
 
     def resolve_product(self, info, id, **kwargs):
         return get_vendor_products(info).filter(id=id).last()

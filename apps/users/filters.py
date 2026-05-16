@@ -238,6 +238,10 @@ class VendorFilters(BaseFilterOrderBy):
         field_name='name',
         lookup_expr='icontains'
     )
+    min_rating = django_filters.NumberFilter(
+        field_name='rating',
+        lookup_expr='gte'
+    )
     email = django_filters.CharFilter(
         field_name='email',
         lookup_expr='icontains'
@@ -309,7 +313,11 @@ class VendorFilters(BaseFilterOrderBy):
         fields = [
             'id',
             'is_blocked',
-            'has_product'
+            'is_popular',
+            'is_featured',
+            'has_product',
+            'rating',
+            'discount_percentage',
         ]
 
 
