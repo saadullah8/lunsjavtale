@@ -15,6 +15,7 @@ from pathlib import Path
 
 from corsheaders.defaults import default_headers
 from decouple import config
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,7 +30,7 @@ SECRET_KEY = config('SECRET_KEY', default='')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', cast=bool, default=False)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=lambda hosts: [i.strip() for i in hosts.strip().split(',')], default=['localhost'])
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=lambda hosts: [i.strip() for i in hosts.strip().split(',')], default=['localhost', '127.0.0.1', '.onrender.com'])
 
 
 # Application definition
@@ -56,6 +57,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.gzip.GZipMiddleware',
@@ -90,14 +92,11 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': config('ENGINE', 'django.db.backends.postgresql_psycopg2'),
-        'NAME': config('NAME', 'lunsjavtale'),
-        'USER': config('DB_USER', 'postgres'),
-        'PASSWORD': config('PASSWORD', 'jim12345'),
-        'HOST': config('HOST', 'localhost'),
-        'PORT': config('PORT', cast=int, default=5432),
-    }
+    'default': config(
+        'DATABASE_URL',
+        default='postgresql://postgres:jim12345@localhost:5432/lunsjavtale',
+        cast=dj_database_url.parse
+    )
 }
 
 
@@ -142,6 +141,10 @@ STATICFILES_FINDERS = (
     'django.contrib.staticfiles.finders.FileSystemFinder',
     'django.contrib.staticfiles.finders.AppDirectoriesFinder',
 )
+
+# WhiteNoise storage for production
+if not DEBUG:
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files
 MEDIA_ROOT = join(os.path.dirname(BASE_DIR), 'media')
