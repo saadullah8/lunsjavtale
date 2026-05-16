@@ -1,6 +1,7 @@
 services:
   - type: web
     name: lunsjavtale-backend
+    plan: free
     env: python
     buildCommand: ./build.sh
     startCommand: gunicorn backend.wsgi:application
@@ -8,14 +9,18 @@ services:
       - key: PYTHON_VERSION
         value: 3.10.12
       - key: DEBUG
-        value: False
+        value: "False"
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
         fromDatabase:
           name: lunsjavtale-db
           property: connectionString
+      - key: ALLOWED_HOSTS
+        value: .onrender.com,localhost,127.0.0.1
 
 databases:
   - name: lunsjavtale-db
     plan: free
+    databaseName: lunsjavtale
+    user: lunsjavtale_user
