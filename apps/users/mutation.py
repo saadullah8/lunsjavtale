@@ -234,6 +234,11 @@ def _perform_user_registration(info, user_input, role, profile_form=None, profil
                 user.company = p_obj
                 user.save()
                 user.send_email_verification()
+        else:
+            if role == RoleTypeChoices.USER:
+                user.is_verified = True
+                user.is_email_verified = True
+                user.save()
         return user, None
     else:
         for error in user_form.errors:
