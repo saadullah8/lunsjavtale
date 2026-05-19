@@ -1099,6 +1099,22 @@ class PlaceClientOrder(graphene.Mutation):
             )
             cart.added_for.add(user)
         
+        # Trigger In-App Notification (No Email) for Client Order Placed
+        try:
+            from backend.task_dispatch import dispatch_task
+            from apps.notifications.tasks import send_notification_and_save
+            from apps.notifications.choices import NotificationTypeChoice
+            dispatch_task(
+                send_notification_and_save,
+                user_id=user.id,
+                title="Order Placed",
+                message=f"Your order (ID: #{order.id}) has been placed successfully.",
+                n_type=NotificationTypeChoice.ORDER_PLACED,
+                object_id=str(order.id)
+            )
+        except Exception:
+            pass
+        
         return PlaceClientOrder(success=True, message="Order placed successfully")
 
 

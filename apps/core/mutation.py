@@ -726,6 +726,24 @@ class ContactUsMutation(DjangoModelFormMutation):
             admin_email = getattr(settings, 'ADMIN_EMAIL', 'admin@lunsjavtale.no')
             send_email_on_delay.delay(template, context, subject, admin_email)
             
+            # Send In-App Notification (No Email) to Client
+            user = info.context.user
+            if user and user.is_authenticated:
+                try:
+                    from backend.task_dispatch import dispatch_task
+                    from apps.notifications.tasks import send_notification_and_save
+                    from apps.notifications.choices import NotificationTypeChoice
+                    dispatch_task(
+                        send_notification_and_save,
+                        user_id=user.id,
+                        title="Form Submitted",
+                        message="Your contact form has been submitted successfully. We will get back to you soon.",
+                        n_type=NotificationTypeChoice.ALERT,
+                        object_id=str(obj.id)
+                    )
+                except Exception:
+                    pass
+            
         else:
             error_data = {}
             for error in form.errors:

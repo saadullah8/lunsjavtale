@@ -22,10 +22,24 @@ User = get_user_model()
 @app.task
 def notify_company_order_update(id):
     order = Order.objects.get(id=id)
-    users = list(order.company.users.filter(
-        role__in=[RoleTypeChoices.COMPANY_MANAGER, RoleTypeChoices.COMPANY_OWNER]).values_list('id', flat=True))
     title = "Order status update."
     message = f"Your order (ID: #{order.id}) status has been updated to '{str(order.status).replace('-', ' ')}'."
+    
+    # Handle private client orders (no company associated)
+    if not order.company:
+        client_order = order.client_order.last() if hasattr(order, 'client_order') and order.client_order.exists() else None
+        if client_order and client_order.user:
+            send_notification_and_save(
+                user_id=client_order.user.id,
+                title=title,
+                message=message,
+                n_type=NotificationTypeChoice.ORDER_STATUS_CHANGED,
+                object_id=order.id
+            )
+        return
+
+    users = list(order.company.users.filter(
+        role__in=[RoleTypeChoices.COMPANY_MANAGER, RoleTypeChoices.COMPANY_OWNER]).values_list('id', flat=True))
     send_bulk_notification_and_save(
         user_ids=users,
         title=title,
