@@ -1429,7 +1429,11 @@ class LoginUser(graphene.Mutation):
         access = TokenManager.get_access({"user_id": str(user.id)})
         mac_address = info.context.headers.get("macaddress", None)
         if user.is_admin:
-            access_token = AccessToken.objects.get_or_create(user=user, mac_address=mac_address)[0]
+            access_token = AccessToken.objects.filter(user=user, mac_address=mac_address).last()
+            if not access_token:
+                access_token = AccessToken.objects.create(user=user, mac_address=mac_address)
+            else:
+                AccessToken.objects.filter(user=user, mac_address=mac_address).exclude(id=access_token.id).delete()
             access_token.token = access
             access_token.save()
         else:
@@ -1561,14 +1565,13 @@ class SocialLogin(graphene.Mutation):
         mac_address = info.context.headers.get("macaddress", None)
         access = TokenManager.get_access({"user_id": str(user.id)})
         refresh = TokenManager.get_refresh({"user_id": str(user.id)})
-        try:
-            access_token = AccessToken.objects.get(user=user, mac_address=mac_address)
+        access_token = AccessToken.objects.filter(user=user, mac_address=mac_address).last()
+        if access_token:
             access_token.token = access
             access_token.save()
-        except AccessToken.DoesNotExist:
-            access_token = AccessToken.objects.create(user=user, token=access)
-            access_token.mac_address = mac_address
-            access_token.save()
+            AccessToken.objects.filter(user=user, mac_address=mac_address).exclude(id=access_token.id).delete()
+        else:
+            access_token = AccessToken.objects.create(user=user, token=access, mac_address=mac_address)
         return SocialLogin(
             access=access,
             refresh=refresh,

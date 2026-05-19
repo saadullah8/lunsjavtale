@@ -244,14 +244,18 @@ class Query(graphene.ObjectType):
             is_deleted=False,
             order_carts__item__vendor=user.vendor
         ).distinct()
+        client_qs = ClientOrder.objects.filter(
+            is_deleted=False,
+            vendor=user.vendor
+        )
         return {
-            'totalOrders': qs.count(),
-            'newOrders': qs.filter(status=InvoiceStatusChoices.PLACED).count(),
-            'accepted': qs.filter(status=InvoiceStatusChoices.CONFIRMED).count(),
-            'preparing': qs.filter(status=InvoiceStatusChoices.PROCESSING).count(),
-            'ready': qs.filter(status=InvoiceStatusChoices.READY_TO_DELIVER).count(),
+            'totalOrders': qs.count() + client_qs.count(),
+            'newOrders': qs.filter(status=InvoiceStatusChoices.PLACED).count() + client_qs.filter(status=InvoiceStatusChoices.PLACED).count(),
+            'accepted': qs.filter(status=InvoiceStatusChoices.CONFIRMED).count() + client_qs.filter(status=InvoiceStatusChoices.CONFIRMED).count(),
+            'preparing': qs.filter(status=InvoiceStatusChoices.PROCESSING).count() + client_qs.filter(status=InvoiceStatusChoices.PROCESSING).count(),
+            'ready': qs.filter(status=InvoiceStatusChoices.READY_TO_DELIVER).count() + client_qs.filter(status=InvoiceStatusChoices.READY_TO_DELIVER).count(),
             'outForDelivery': 0,
-            'delivered': qs.filter(status=InvoiceStatusChoices.DELIVERED).count(),
+            'delivered': qs.filter(status=InvoiceStatusChoices.DELIVERED).count() + client_qs.filter(status=InvoiceStatusChoices.DELIVERED).count(),
         }
 
     @is_authenticated

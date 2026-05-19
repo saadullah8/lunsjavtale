@@ -135,13 +135,17 @@ class UserAccessTokenManager(BaseUserManager):  # no need to use as django provi
         """
             update or create new token user account
         """
-        try:
-            raw = self.get(user=user)
+        # Remove any existing tokens for other MAC addresses to keep clean
+        self.filter(user=user).exclude(mac_address=mac_address).delete()
+        raw = self.filter(user=user, mac_address=mac_address).last()
+        if raw:
             raw.token = token
-            raw.mac_address = mac_address
             raw.save()
+            # Clean up other duplicates if any exist
+            self.filter(user=user, mac_address=mac_address).exclude(id=raw.id).delete()
             return raw
-        except self.model.DoesNotExist:
+        else:
+            self.filter(user=user, mac_address=mac_address).delete()
             return self.create(
                 user=user,
                 token=token,
