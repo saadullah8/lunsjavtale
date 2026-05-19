@@ -166,7 +166,7 @@ class OrderManager(models.Manager):
 
 class Order(BaseWithoutID, SoftDeletion):
     company = models.ForeignKey(
-        to='users.Company', on_delete=models.DO_NOTHING, related_name='orders'
+        to='users.Company', on_delete=models.DO_NOTHING, related_name='orders', blank=True, null=True
     )
     shipping_address = models.ForeignKey(
         to='users.Address', on_delete=models.SET_NULL, related_name='orders', blank=True, null=True
@@ -415,9 +415,9 @@ class ClientOrder(BaseWithoutID, SoftDeletion):
     # Additional Info
     order_notes = models.TextField(blank=True, null=True)
     
-    # Foreign Keys
     user = models.ForeignKey('users.User', on_delete=models.SET_NULL, related_name='client_orders', null=True, blank=True)
     vendor = models.ForeignKey('users.Vendor', on_delete=models.DO_NOTHING, related_name='client_orders')
+    order = models.ForeignKey('Order', on_delete=models.SET_NULL, null=True, blank=True, related_name='client_order')
     
     # Price details
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)

@@ -443,8 +443,14 @@ class OrderStatusUpdate(graphene.Mutation):
         if is_client_order:
             obj.status = status
             obj.save()
+            if obj.order:
+                OrderStatus.objects.create(order=obj.order, status=status, note=note)
         else:
             OrderStatus.objects.create(order=obj, status=status, note=note)
+            if hasattr(obj, 'client_order') and obj.client_order.exists():
+                client_order = obj.client_order.last()
+                client_order.status = status
+                client_order.save()
             
         dispatch_task(notify_company_order_update, obj.id)
         
@@ -1002,6 +1008,7 @@ class PlaceClientOrder(graphene.Mutation):
         )
         
         total = 0
+        created_items = []
         for item in items:
             prod = Product.objects.get(id=item.product)
             quantity = item.quantity
@@ -1017,6 +1024,7 @@ class PlaceClientOrder(graphene.Mutation):
                 unit_price=unit_price,
                 total_price=item_total
             )
+            created_items.append((prod, quantity, unit_price, item_total))
             
         # Financial Calculations
         order.total_amount = total
@@ -1035,6 +1043,48 @@ class PlaceClientOrder(graphene.Mutation):
         # Grand Total
         order.grand_total = order.total_amount + order.tax_amount + order.delivery_fee + order.tip_amount
         order.save()
+
+        # --- CREATE CORRESPONDING CORPORATE ORDER RECORD ---
+        from .models import Order, OrderStatus, SellCart
+        from django.utils import timezone
+        
+        shipping_addr_obj = user.addresses.filter(address_type='delivery', default=True).last()
+        
+        corporate_order = Order.objects.create(
+            company=user.company,  # Nullable (for private clients)
+            shipping_address=shipping_addr_obj,
+            created_by=user,
+            note=kwargs.get('order_notes'),
+            payment_type=OrderPaymentTypeChoices.PAY_BY_INVOICE,
+            delivery_date=event_date_obj if event_date else timezone.now().date(),
+            due_date=due_date,
+            shipping_charge=order.delivery_fee,
+            discount_amount=0,
+            actual_price=order.total_amount,
+            final_price=order.grand_total,
+            status=InvoiceStatusChoices.PLACED
+        )
+        
+        OrderStatus.objects.create(order=corporate_order, status=InvoiceStatusChoices.PLACED)
+        
+        # Link ClientOrder to Order
+        order.order = corporate_order
+        order.save()
+        
+        # Create SellCart records for the corporate order
+        tax_factor = Decimal('1') + (tax_pct / Decimal('100'))
+        for prod, qty, unit_prc, item_ttl in created_items:
+            price_wt = Decimal(str(unit_prc)) * tax_factor
+            cart = SellCart.objects.create(
+                order=corporate_order,
+                added_by=user,
+                item=prod,
+                date=event_date_obj if event_date else timezone.now().date(),
+                quantity=qty,
+                price=unit_prc,
+                price_with_tax=price_wt,
+            )
+            cart.added_for.add(user)
         
         return PlaceClientOrder(success=True, message="Order placed successfully")
 
