@@ -23,6 +23,10 @@ def broker_is_available(timeout=0.2):
 
 def dispatch_task(task, *args, **kwargs):
     if not broker_is_available():
-        logger.warning("Celery broker unavailable. Skipping task: %s", task.name)
+        logger.warning("Celery broker unavailable. Running task '%s' synchronously.", task.name)
+        try:
+            task(*args, **kwargs)
+        except Exception as e:
+            logger.error("Failed to run task '%s' synchronously: %s", task.name, str(e))
         return None
     return task.apply_async(args=args, kwargs=kwargs, retry=False)

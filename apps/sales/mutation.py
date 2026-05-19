@@ -452,12 +452,13 @@ class OrderStatusUpdate(graphene.Mutation):
                 client_order.status = status
                 client_order.save()
             
-        dispatch_task(notify_company_order_update, obj.id)
+        notify_id = obj.order.id if is_client_order and obj.order else obj.id
+        dispatch_task(notify_company_order_update, notify_id)
         
         # Award Reward Points on Delivery
         if status == InvoiceStatusChoices.DELIVERED:
-            if not is_client_order:
-                dispatch_task(vendor_sold_amount_calculation, obj.id)
+            order_id = obj.order.id if is_client_order and obj.order else obj.id
+            dispatch_task(vendor_sold_amount_calculation, order_id)
             
             # Logic for Rewards
             order_user = obj.created_by if not is_client_order else obj.user
