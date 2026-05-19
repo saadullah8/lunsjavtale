@@ -133,12 +133,22 @@ def notify_user_carts(ids):
 
 @app.task
 def vendor_sold_amount_calculation(id):
+    from django.db.models import Sum
+    from apps.users.models import Vendor
+    from apps.sales.choices import InvoiceStatusChoices
+    
     obj = Order.objects.get(id=id)
-    carts = SellCart.objects.filter(order=obj, item__vendor__isnull=False)
-    for cart in carts:
-        if cart.item.vendor:
-            vendor = cart.item.vendor
-            vendor.sold_amount += cart.total_price_with_tax
+    vendors = list(obj.order_carts.filter(item__vendor__isnull=False).values_list('item__vendor', flat=True).distinct())
+    for vendor_id in vendors:
+        vendor = Vendor.objects.filter(id=vendor_id).first()
+        if vendor:
+            # Sum up total_price_with_tax for all SellCarts of this vendor in DELIVERED orders
+            total_sold = SellCart.objects.filter(
+                item__vendor=vendor,
+                order__status=InvoiceStatusChoices.DELIVERED,
+                order__is_deleted=False
+            ).aggregate(total=Sum('total_price_with_tax'))['total'] or Decimal('0.00')
+            vendor.sold_amount = total_sold
             vendor.save()
 
 
