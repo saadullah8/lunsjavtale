@@ -228,6 +228,34 @@ class OrderType(DjangoObjectType):
         visible = _customer_details_visible(self, user)
         address = self.shipping_address
         company = self.company
+        
+        # If this is a ClientOrder (private/corporate client without Company model)
+        client_order = self.client_order.last() if hasattr(self, 'client_order') and self.client_order.exists() else None
+        
+        if not company:
+            if client_order:
+                base = {
+                    "masked": not visible,
+                    "organization": client_order.company_name or "Private Client",
+                    "returningCustomerOrders": 0,
+                }
+                if not visible:
+                    return base
+                base.update({
+                    "email": client_order.email,
+                    "phone": client_order.phone,
+                    "postCode": client_order.invoice_postal_code,
+                    "deliveryAddress": client_order.delivery_address_str,
+                    "city": client_order.invoice_city,
+                    "state": None,
+                    "country": None,
+                    "contactName": client_order.company_name or "Private Client",
+                    "contactPhone": client_order.phone,
+                    "deliveryInstruction": self.note,
+                })
+                return base
+            return None
+
         base = {
             "masked": not visible,
             "organization": company.name,
@@ -251,7 +279,20 @@ class OrderType(DjangoObjectType):
 
     def resolve_order_history(self, info, **kwargs):
         user = getattr(info.context, 'user', None)
-        orders = self.company.orders.exclude(id=self.id)
+        company = self.company
+        
+        if not company:
+            client_order = self.client_order.last() if hasattr(self, 'client_order') and self.client_order.exists() else None
+            if client_order:
+                if client_order.user:
+                    orders = Order.objects.filter(created_by=client_order.user).exclude(id=self.id)
+                else:
+                    orders = Order.objects.filter(client_order__email=client_order.email).exclude(id=self.id)
+            else:
+                return []
+        else:
+            orders = company.orders.exclude(id=self.id)
+
         if user and user.is_vendor:
             orders = orders.filter(order_carts__item__vendor=user.vendor).distinct()
         orders = orders.order_by('-created_on')[:10]
