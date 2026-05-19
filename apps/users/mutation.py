@@ -1049,11 +1049,24 @@ class VendorWithdrawRequest(graphene.Mutation):
             obj = WithdrawRequest.objects.get(id=id)
             if status not in WithdrawRequestChoices:
                 raise_graphql_error("Status not valid.", field_name="status")
+            
+            old_status = obj.status
             obj.status = status
             obj.note = note
-            if status == WithdrawRequestChoices.ACCEPTED:
+            
+            PAID_WITHDRAW_STATUSES = [
+                WithdrawRequestChoices.ACCEPTED,
+                WithdrawRequestChoices.COMPLETED,
+            ]
+            
+            # Update withdrawn_amount based on status transitions to prevent double-counting
+            if status in PAID_WITHDRAW_STATUSES and old_status not in PAID_WITHDRAW_STATUSES:
                 obj.vendor.withdrawn_amount += obj.withdraw_amount
                 obj.vendor.save()
+            elif status not in PAID_WITHDRAW_STATUSES and old_status in PAID_WITHDRAW_STATUSES:
+                obj.vendor.withdrawn_amount -= obj.withdraw_amount
+                obj.vendor.save()
+                
             obj.save()
             msg = 'updated'
         else:

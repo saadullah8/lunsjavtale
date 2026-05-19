@@ -133,10 +133,20 @@ def _finance_order_row(order, vendor):
     carts = order.order_carts.filter(item__vendor=vendor)
     total = carts.aggregate(total=Sum("total_price_with_tax"))["total"] or Decimal("0.00")
     commission = _commission_amount(total, vendor)
+    
+    # Handle private client orders (no company associated)
+    customer_name = "Private Client"
+    if order.company:
+        customer_name = order.company.name
+    else:
+        client_order = order.client_order.last() if hasattr(order, 'client_order') and order.client_order.exists() else None
+        if client_order:
+            customer_name = client_order.company_name or client_order.email or "Private Client"
+
     return {
         "id": order.id,
         "orderId": f"#{order.id}",
-        "customer": order.company.name,
+        "customer": customer_name,
         "event": _order_event_name(order, vendor),
         "date": order.delivery_date.isoformat() if order.delivery_date else None,
         "totalAmount": _money(total),
@@ -151,11 +161,21 @@ def _dashboard_order_row(order, vendor):
     carts = order.order_carts.filter(item__vendor=vendor)
     total = carts.aggregate(total=Sum("total_price_with_tax"))["total"] or Decimal("0.00")
     address = order.shipping_address
+    
+    # Handle private client orders (no company associated)
+    customer_name = "Private Client"
+    if order.company:
+        customer_name = order.company.name
+    else:
+        client_order = order.client_order.last() if hasattr(order, 'client_order') and order.client_order.exists() else None
+        if client_order:
+            customer_name = client_order.company_name or client_order.email or "Private Client"
+
     return {
         "id": order.id,
         "orderId": f"#{order.id}",
         "event": _order_event_name(order, vendor),
-        "customer": order.company.name,
+        "customer": customer_name,
         "deliveryDate": order.delivery_date.isoformat() if order.delivery_date else None,
         "deliveryLabel": _delivery_label(order.delivery_date),
         "deliveryAddress": address.address if address else None,
@@ -494,6 +514,8 @@ class Query(graphene.ObjectType):
             qs = qs.filter(
                 models.Q(company__name__icontains=term) |
                 models.Q(company__working_email__icontains=term) |
+                models.Q(client_order__company_name__icontains=term) |
+                models.Q(client_order__email__icontains=term) |
                 models.Q(order_carts__item__name__icontains=term) |
                 models.Q(order_carts__item__title__icontains=term)
             ).distinct()

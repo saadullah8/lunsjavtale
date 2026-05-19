@@ -453,7 +453,11 @@ class OrderStatusUpdate(graphene.Mutation):
                 client_order.save()
             
         notify_id = obj.order.id if is_client_order and obj.order else obj.id
-        dispatch_task(notify_company_order_update, notify_id)
+        # Run notify_company_order_update synchronously to save notification immediately in DB
+        try:
+            notify_company_order_update(notify_id)
+        except Exception:
+            pass
         
         # Award Reward Points on Delivery
         if status == InvoiceStatusChoices.DELIVERED:
@@ -461,14 +465,8 @@ class OrderStatusUpdate(graphene.Mutation):
             
             # Update vendor sold amount directly (bypass Celery to ensure database consistency)
             try:
-                from .models import SellCart
-                order_obj = Order.objects.get(id=order_id)
-                carts = SellCart.objects.filter(order=order_obj, item__vendor__isnull=False)
-                for cart in carts:
-                    if cart.item.vendor:
-                        vendor = cart.item.vendor
-                        vendor.sold_amount += cart.total_price_with_tax
-                        vendor.save()
+                from apps.sales.tasks import vendor_sold_amount_calculation
+                vendor_sold_amount_calculation(order_id)
             except Exception as e:
                 pass
             
@@ -1099,13 +1097,11 @@ class PlaceClientOrder(graphene.Mutation):
             )
             cart.added_for.add(user)
         
-        # Trigger In-App Notification (No Email) for Client Order Placed
+        # Trigger In-App Notification (No Email) for Client Order Placed - Save synchronously to ensure immediate DB availability
         try:
-            from backend.task_dispatch import dispatch_task
             from apps.notifications.tasks import send_notification_and_save
             from apps.notifications.choices import NotificationTypeChoice
-            dispatch_task(
-                send_notification_and_save,
+            send_notification_and_save(
                 user_id=user.id,
                 title="Order Placed",
                 message=f"Your order (ID: #{order.id}) has been placed successfully.",
