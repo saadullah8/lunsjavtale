@@ -458,7 +458,19 @@ class OrderStatusUpdate(graphene.Mutation):
         # Award Reward Points on Delivery
         if status == InvoiceStatusChoices.DELIVERED:
             order_id = obj.order.id if is_client_order and obj.order else obj.id
-            dispatch_task(vendor_sold_amount_calculation, order_id)
+            
+            # Update vendor sold amount directly (bypass Celery to ensure database consistency)
+            try:
+                from .models import SellCart
+                order_obj = Order.objects.get(id=order_id)
+                carts = SellCart.objects.filter(order=order_obj, item__vendor__isnull=False)
+                for cart in carts:
+                    if cart.item.vendor:
+                        vendor = cart.item.vendor
+                        vendor.sold_amount += cart.total_price_with_tax
+                        vendor.save()
+            except Exception as e:
+                pass
             
             # Logic for Rewards
             order_user = obj.created_by if not is_client_order else obj.user
