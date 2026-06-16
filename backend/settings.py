@@ -218,8 +218,9 @@ VIPPS_MERCHANT_SERIAL_NUMBER = config("VIPPS_MERCHANT_SERIAL_NUMBER", "")
 EMAIL_HOST = config('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', None)
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', None)
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
+EMAIL_PORT = config('EMAIL_PORT', 587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', True, cast=bool)
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', False, cast=bool)
 EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', cast=int, default=60)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 SERVER_EMAIL = config('SERVER_EMAIL', EMAIL_HOST_USER)
