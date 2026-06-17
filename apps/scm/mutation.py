@@ -88,6 +88,8 @@ class VendorAddOnInput(graphene.InputObjectType):
     dietary_tags = graphene.List(graphene.String)
     custom_dietary = graphene.String()
     contains = graphene.JSONString()
+    cover_image_url = graphene.String()
+    cover_image_file_id = graphene.String()
 
 
 def validate_choice(value, choices, field_name):
@@ -126,6 +128,18 @@ def sync_attachments(product, attachments):
             file_id=attach.get('file_id'),
             is_cover=attach.get('is_cover'),
         )
+
+
+def sync_cover_image(product, cover_image_url, cover_image_file_id=None):
+    if not cover_image_url:
+        return
+    product.attachments.filter(is_cover=True).delete()
+    ProductAttachment.objects.create(
+        product=product,
+        file_url=cover_image_url,
+        file_id=cover_image_file_id,
+        is_cover=True,
+    )
 
 
 def sync_ingredients(product, ingredients):
@@ -639,6 +653,7 @@ class VendorAddOnMutation(graphene.Mutation):
             product = get_vendor_product(user, input.get('id'), ProductTypeChoices.ADD_ON)
         product = apply_menu_input(product, input, ProductTypeChoices.ADD_ON)
         sync_attachments(product, attachments)
+        sync_cover_image(product, input.get('cover_image_url'), input.get('cover_image_file_id'))
         return VendorAddOnMutation(
             success=True,
             message=f"Successfully {'updated' if input.get('id') else 'created'}",
