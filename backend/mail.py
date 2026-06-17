@@ -59,6 +59,7 @@ def send_mail(
             print("Successful")
         except Exception as e:
             print(e, flush=True)
+            raise e
 
 
 def send_direct_mail_by_default_bcc(
@@ -91,6 +92,7 @@ def send_direct_mail_by_default_bcc(
             print("Successful")
         except Exception as e:
             print(e, flush=True)
+            raise e
 
 
 def send_mail_from_template(
