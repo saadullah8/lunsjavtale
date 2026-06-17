@@ -9,6 +9,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
 
 app = Celery('backend')
 
-app.config_from_object('django.conf:settings')
+app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
 print("Starting up celery...")
