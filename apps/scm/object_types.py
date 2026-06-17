@@ -98,6 +98,7 @@ class ProductType(DjangoObjectType):
     dietary_tags = GenericScalar()
     delivery_fee = graphene.Decimal()
     delivery_time = graphene.String()
+    cover_image = graphene.Field(lambda: ProductAttachmentType)
     # Adding camelCase names explicitly to ensure GraphiQL picks them up correctly
     average_rating = graphene.Decimal(source='average_rating')
     orders_count = graphene.Int(source='orders_count')
@@ -129,6 +130,9 @@ class ProductType(DjangoObjectType):
             settings = self.vendor.delivery_settings
             return f"{settings.min_delivery_time}-{settings.max_delivery_time} minutes"
         return "15-30 minutes"
+
+    def resolve_cover_image(self, info):
+        return self.attachments.filter(is_cover=True).first()
 
 
 class MenuItemType(DjangoObjectType):
