@@ -174,7 +174,15 @@ class Vendor(BaseWithoutID, SoftDeletion):
         blank=True,
         null=True
     )
+    cover_photo_url = models.TextField(
+        blank=True,
+        null=True
+    )
     file_id = models.TextField(
+        blank=True,
+        null=True
+    )
+    cover_photo_file_id = models.TextField(
         blank=True,
         null=True
     )
